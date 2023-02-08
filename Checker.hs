@@ -15,7 +15,7 @@ freeStr = Free "Str"
 data ErrorMessage = ApplicationMisMatch Type Type | ArgumentMismatch Type Type | ParseError
     deriving Show
 
-data TypedExpr = TypedVar Value Type | TypedApp [TypedExpr] Type | TypedAbs String TypedExpr Type | TypedLet String TypedExpr Type | NoExpr | ErrorT ErrorMessage
+data TypedExpr = TypedVar Value Type | TypedApp [TypedExpr] Type | TypedAbs String TypedExpr Type | TypedLet String TypedExpr Type TypedExpr | TypedLetTop String TypedExpr Type | NoExpr | ErrorT ErrorMessage
     deriving Show
 
 showType :: Type -> String
@@ -37,7 +37,8 @@ showTypedExpr (TypedVar (Num i) t) = show i ++ ":" ++ showType t
 showTypedExpr (TypedVar (Str s) t) = "\"" ++ s ++ "\"" ++ ":" ++ showType t
 showTypedExpr (TypedVar (Id s) t@(Fun _ _)) = s ++ ":" ++ showTypeE t
 showTypedExpr (TypedVar (Id s) t) = s ++ ":" ++ showType t
-showTypedExpr (TypedLet i e t) = i ++ " : " ++ showType t ++ " = " ++ showTypedExpr e
+showTypedExpr (TypedLet i e1 t e2) = "let " ++ i ++ " : " ++ showType t ++ " = " ++ showTypedExpr e1 ++ " in " ++ showTypedExpr e2
+showTypedExpr (TypedLetTop i e t) = i ++ " : " ++ showType t ++ " = " ++ showTypedExpr e
 showTypedExpr NoExpr = "\n"
 showTypedExpr (ErrorT (ArgumentMismatch param arg)) = "Type error: tried to apply argument " ++ showType arg ++ " to function that takes a " ++ showType param ++ ""
 showTypedExpr (ErrorT (ApplicationMisMatch ft arg)) = "Type error: tried to apply argument " ++ showType arg ++ " to non function " ++ showType ft ++ ""
@@ -48,7 +49,8 @@ typeOf :: TypedExpr -> Type
 typeOf (TypedVar _ t) = t
 typeOf (TypedApp _ t) = t
 typeOf (TypedAbs _ _ t) = t
-typeOf (TypedLet _ _ t) = t
+typeOf (TypedLet _ _ t _) = t
+typeOf (TypedLetTop _ _ t) = t
 typeOf NoExpr = Unknown
 typeOf (ErrorT _) = Unknown
 
@@ -72,7 +74,11 @@ typeExpr c (App [e1, e2] ta) =
 typeExpr c (App _ ta) = undefined
 typeExpr c (Abs s ta e) = let typedE = typeExpr c e in TypedAbs s typedE (Fun Unknown (typeOf typedE)) -- TODO argtype need to get from context of typedE and unify with type assert ta
 typeExpr c (Enclosed e t) =  typeExpr c e
-typeExpr c (Let s t e) = let typedE = typeExpr c e in TypedLet s typedE (typeOf typedE)
+typeExpr c (LetTop s t e) = let typedE = typeExpr c e in TypedLetTop s typedE (typeOf typedE)
+typeExpr c (Let s t e1 e2) =
+    let typedE1 = typeExpr c e1
+        typedE2 = typeExpr c e2
+    in TypedLet s typedE1 (typeOf typedE1) typedE2
 -- TODO remove these
 typeExpr c NewLine = NoExpr
 typeExpr c (Error m) = ErrorT ParseError

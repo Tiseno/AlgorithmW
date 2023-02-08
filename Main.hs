@@ -8,16 +8,24 @@ main = do
     args <- getArgs
     file <- readFile (head args)
     let tokens = tokenize file
-    print tokens
     let ast = parse tokens
-    putStrLn ""
-    print ast
-    putStrLn ""
-    putStr $ concatMap debugExpr ast
-    putStrLn ""
-    putStrLn ""
-    putStr $ concatMap prettyExpr ast
     let typedAst = typed ast
-    print typedAst
-    putStrLn ""
-    putStr $ concatMap showTypedExpr typedAst
+    -- putStrLn "Tokens:"
+    -- print tokens
+    -- putStrLn ""
+    -- putStrLn "Ast:"
+    -- print ast
+    -- putStrLn ""
+    -- putStrLn "PrettyDebug ast:"
+    -- putStr $ concatMap debugExpr ast
+    -- putStrLn ""
+    -- putStrLn "PrettyPrint ast:"
+    -- putStrLn "Typed ast:"
+    -- print typedAst
+    -- putStrLn ""
+    putStrLn "File:"
+    putStrLn file
+    putStrLn "Parsed:"
+    putStrLn $ concatMap prettyExpr ast
+    putStrLn "Checked:"
+    putStrLn $ concatMap showTypedExpr typedAst

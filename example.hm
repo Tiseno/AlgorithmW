@@ -1,3 +1,7 @@
+k = λx.(let f = λy.x in f)
+
+id = λx.x
+
 main = λ f . print "23"
 
 main = λ f . print 23

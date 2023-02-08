@@ -16,10 +16,12 @@ data Token = TNewLine
     | TLParen         -- (
     | TRParen         -- )
     | TAssign         -- =
+    | TOfType         -- :
+    | TLet            -- let
+    | TIn             -- in
     | TIdentifier String
     | TNumberLiteral Int
     | TStringLiteral String
-    | TOfType      -- :
     -- | TComment String -- -- a comment
     -- | TTypeIdentifier String
     deriving Show
@@ -77,6 +79,11 @@ stringLiteral = TStringLiteral <$> (charLexer '"' *> spanLexer (/= '"') <* charL
 
 specialIdentifier = TIdentifier <$> notEmpty (spanLexer (\c -> not (isSpace c) && not (isAlpha c) && not (isNumber c) && c /= 'λ'  && c /= '.' && c /= '(' && c /= ')' && c /= '=' && c /= ':' && c /= '"' && c /= '-'))
 
+keywordLexer = traverse charLexer
+
+keywordLet = const TLet <$> keywordLexer "let"
+keywordIn  = const TIn  <$> keywordLexer "in"
+
 testTokenLexer name (lexer :: Lexer Token) = do
     putStr (name ++ " token > ")
     input <- getLine
@@ -95,7 +102,21 @@ testWithInput name fn = do
 sepBy separatorLexer itemLexer = many (separatorLexer *> itemLexer)
 
 tokenize :: String -> Maybe [Token]
-tokenize s = snd <$> runLexer (sepBy whitespace (lambda <|> abstraction <|> lParen <|> rParen <|> assign <|> identifier <|> numberLiteral <|> stringLiteral <|> specialIdentifier <|> newLine <|> ofType)) s
+tokenize s = snd <$> runLexer (sepBy whitespace (
+    lambda
+    <|> abstraction
+    <|> lParen
+    <|> rParen
+    <|> assign
+    <|> newLine
+    <|> ofType
+    <|> keywordLet
+    <|> keywordIn
+    <|> identifier
+    <|> numberLiteral
+    <|> stringLiteral
+    <|> specialIdentifier
+    )) s
 
 
 main = do
