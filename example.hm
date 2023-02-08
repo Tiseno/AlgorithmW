@@ -1,2 +1,4 @@
 main = λ f . print "23"
 
+main = λ f . print 23
+
