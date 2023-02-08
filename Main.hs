@@ -1,6 +1,6 @@
 import Lexer (tokenize)
 import Parser (parse, prettyExpr, debugExpr)
-import Checker (typed, showTypedExpr)
+import Checker (typed, showTypedExpr, collectErrors)
 import System.Environment (getArgs)
 import Data.List (intercalate)
 
@@ -9,7 +9,7 @@ main = do
     file <- readFile (head args)
     let tokens = tokenize file
     let ast = parse tokens
-    let typedAst = typed ast
+    let typedAst = snd $ typed ast
     -- putStrLn "Tokens:"
     -- print tokens
     -- putStrLn ""
@@ -28,4 +28,5 @@ main = do
     putStrLn "Parsed:"
     putStrLn $ concatMap prettyExpr ast
     putStrLn "Checked:"
-    putStrLn $ concatMap showTypedExpr $ snd typedAst
+    putStrLn $ concatMap showTypedExpr typedAst
+    mapM_ putStrLn $ collectErrors typedAst

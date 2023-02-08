@@ -1,6 +1,7 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Move brackets to avoid $" #-}
-module Checker (typed, showTypedExpr) where
+{-# HLINT ignore "Use <$>" #-}
+module Checker (typed, showTypedExpr, collectErrors) where
 
 import Parser (Expr(..), Value(..))
 import Data.Map as Map
@@ -13,7 +14,7 @@ data Type =  Free String | Quantified String | Fun Type Type | Unknown
 freeNum = Free "Num"
 freeStr = Free "Str"
 
-data ErrorMessage = ApplicationMisMatch Type Type | ArgumentMismatch Type Type | ParseError
+data ErrorMessage = ApplicationMismatch Type Type | ArgumentMismatch Type Type | ParseError
     deriving Show
 
 data TypedExpr = TypedVar Value Type | TypedApp [TypedExpr] Type | TypedAbs String TypedExpr Type | TypedLet String TypedExpr Type TypedExpr | TypedLetTop String TypedExpr Type | NoExpr | ErrorT ErrorMessage
@@ -29,6 +30,10 @@ showType Unknown = "_"
 showTypeE t@(Fun _ _) = "(" ++ showType t ++ ")"
 showTypeE t = showType t
 
+showError (ArgumentMismatch param arg) = "Type error: tried to apply argument " ++ showType arg ++ " to function that takes a " ++ showType param ++ ""
+showError (ApplicationMismatch ft arg) = "Type error: tried to apply argument " ++ showType arg ++ " to non function " ++ showType ft ++ ""
+showError ParseError = error "Encountered parsing error in checker"
+
 showTypedExpr :: TypedExpr -> String
 showTypedExpr (TypedAbs s e Unknown) = "(λ " ++ s ++ " . " ++ showTypedExpr e ++ "):" ++ showTypeE Unknown
 showTypedExpr (TypedAbs s e t@(Fun argType _)) = "(λ " ++ s ++ " : " ++ showType argType ++ " . " ++ showTypedExpr e ++ "):" ++ showTypeE t
@@ -41,8 +46,7 @@ showTypedExpr (TypedVar (Id s) t) = s ++ ":" ++ showType t
 showTypedExpr (TypedLet i e1 t e2) = "let " ++ i ++ " : " ++ showType t ++ " = " ++ showTypedExpr e1 ++ " in " ++ showTypedExpr e2
 showTypedExpr (TypedLetTop i e t) = i ++ " : " ++ showType t ++ " = " ++ showTypedExpr e
 showTypedExpr NoExpr = "\n"
-showTypedExpr (ErrorT (ArgumentMismatch param arg)) = "Type error: tried to apply argument " ++ showType arg ++ " to function that takes a " ++ showType param ++ ""
-showTypedExpr (ErrorT (ApplicationMisMatch ft arg)) = "Type error: tried to apply argument " ++ showType arg ++ " to non function " ++ showType ft ++ ""
+showTypedExpr (ErrorT e) = showError e
 
 type Context = Map String Type
 
@@ -71,7 +75,7 @@ typeExpr c (App [e1, e2] ta) =
                 Unknown -> TypedApp [typedE1, typedE2] Unknown -- TODO infer
                 arg -> if param == arg then TypedApp [typedE1, typedE2] return else ErrorT (ArgumentMismatch param arg)
             Unknown -> TypedApp [typedE1, typedE2] Unknown -- TODO infer
-            ft -> ErrorT (ApplicationMisMatch ft (typeOf typedE2))
+            ft -> ErrorT (ApplicationMismatch ft (typeOf typedE2))
 typeExpr c (App _ ta) = undefined
 typeExpr c (Abs s ta e) = let typedE = typeExpr c e in TypedAbs s typedE (Fun Unknown (typeOf typedE)) -- TODO argtype need to get from context of typedE and unify with type assert ta
 typeExpr c (Enclosed e t) =  typeExpr c e
@@ -94,5 +98,14 @@ typed exprs =
     let context = insert "print" (Fun freeStr freeStr) Map.empty in
     Data.List.foldl typeAndAddToContext (context, []) exprs
 
+collectError :: [ErrorMessage] -> TypedExpr -> [ErrorMessage]
+collectError prev n@(TypedApp exprs _) = Data.List.foldl collectError prev exprs
+collectError prev n@(TypedAbs _ e _) = collectError prev e
+collectError prev n@(TypedLet _ e _ e2) = collectError (collectError prev e) e2
+collectError prev n@(TypedLetTop _ e _) = collectError prev e
+collectError prev (ErrorT m) = prev ++ [m]
+collectError prev e = prev
 
+collectErrors :: [TypedExpr] -> [String]
+collectErrors exprs = fmap showError $ Data.List.foldl collectError ([] :: [ErrorMessage]) exprs
 

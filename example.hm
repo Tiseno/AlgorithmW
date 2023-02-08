@@ -1,10 +1,6 @@
+main = print 23
+main = 23 print
 pp = print
-
-k = λx.(let f = λy.x in f)
-
-id = λx.x
-
-main = λ f . pp "23"
-
 main = λ f . pp 23
-
+id = λx.x
+k = λx.(let f = λy.x in f)
