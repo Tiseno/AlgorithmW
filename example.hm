@@ -2,5 +2,8 @@ main = print 23
 main = 23 print
 pp = print
 main = λ f . pp 23
-id = λx.x
-k = λx.(let f = λy.x in f)
+id = λ x . x
+k = λ x . (let f = λ y . x in f)
+
+'a Aksdj Fasd  -> 'a ->
+_ -> _

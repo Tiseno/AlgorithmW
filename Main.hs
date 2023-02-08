@@ -10,19 +10,12 @@ main = do
     let tokens = tokenize file
     let ast = parse tokens
     let typedAst = snd $ typed ast
-    -- putStrLn "Tokens:"
-    -- print tokens
-    -- putStrLn ""
-    -- putStrLn "Ast:"
-    -- print ast
-    -- putStrLn ""
-    -- putStrLn "PrettyDebug ast:"
-    -- putStr $ concatMap debugExpr ast
-    -- putStrLn ""
-    -- putStrLn "PrettyPrint ast:"
-    -- putStrLn "Typed ast:"
-    -- print typedAst
-    -- putStrLn ""
+    putStrLn "Tokens:"
+    print tokens
+    putStrLn ""
+    putStrLn "Ast:"
+    print ast
+    putStrLn ""
     putStrLn "File:"
     putStrLn file
     putStrLn "Parsed:"
