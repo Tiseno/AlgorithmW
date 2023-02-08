@@ -6,8 +6,11 @@ import Parser (Expr(..), Value(..))
 import Data.Map as Map
 import qualified Data.Maybe
 
-data Type =  Mono String | Fun Type Type | Unknown
+data Type =  Free String | Quantified String | Fun Type Type | Unknown
     deriving (Show, Eq)
+
+freeNum = Free "Num"
+freeStr = Free "Str"
 
 data ErrorMessage = ApplicationMisMatch Type Type | ArgumentMismatch Type Type | ParseError
     deriving Show
@@ -16,7 +19,8 @@ data TypedExpr = TypedVar Value Type | TypedApp [TypedExpr] Type | TypedAbs Stri
     deriving Show
 
 showType :: Type -> String
-showType (Mono s) = s
+showType (Free s) = s
+showType (Quantified s) = "'"++s
 showType (Fun t1@(Fun _ _) t2) = "(" ++ showType t1 ++ ") -> " ++ showType t2
 showType (Fun t1 t2) = showType t1 ++ " -> " ++ showType t2
 showType Unknown = "_"
@@ -35,8 +39,8 @@ showTypedExpr (TypedVar (Id s) t@(Fun _ _)) = s ++ ":" ++ showTypeE t
 showTypedExpr (TypedVar (Id s) t) = s ++ ":" ++ showType t
 showTypedExpr (TypedLet i e t) = i ++ " : " ++ showType t ++ " = " ++ showTypedExpr e
 showTypedExpr NoExpr = "\n"
-showTypedExpr (ErrorT (ArgumentMismatch param arg)) = "Type error: tried to apply argument '" ++ showType arg ++ "' to function that takes a '" ++ showType param ++ "'"
-showTypedExpr (ErrorT (ApplicationMisMatch ft arg)) = "Type error: tried to apply argument '" ++ showType arg ++ "' to non function '" ++ showType ft ++ "'"
+showTypedExpr (ErrorT (ArgumentMismatch param arg)) = "Type error: tried to apply argument " ++ showType arg ++ " to function that takes a " ++ showType param ++ ""
+showTypedExpr (ErrorT (ApplicationMisMatch ft arg)) = "Type error: tried to apply argument " ++ showType arg ++ " to non function " ++ showType ft ++ ""
 
 type Context = Map String Type
 
@@ -49,8 +53,8 @@ typeOf NoExpr = Unknown
 typeOf (ErrorT _) = Unknown
 
 typeValue :: Context -> Value -> Type
-typeValue _ (Num _) = Mono "num"
-typeValue _ (Str _) = Mono "str"
+typeValue _ (Num _) = freeNum
+typeValue _ (Str _) = freeStr
 typeValue c (Id s) = Data.Maybe.fromMaybe Unknown (Map.lookup s c)
 
 -- syntax directed https://en.wikipedia.org/wiki/Hindley%E2%80%93Milner_type_system#Syntax-directed_rule_system
@@ -74,7 +78,7 @@ typeExpr c NewLine = NoExpr
 typeExpr c (Error m) = ErrorT ParseError
 
 typed :: [Expr] -> [TypedExpr]
-typed = let context = insert "print" (Fun (Mono "str") (Mono "str")) Map.empty in
+typed = let context = insert "print" (Fun freeStr freeStr) Map.empty in
     fmap (typeExpr context)
 
 
