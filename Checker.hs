@@ -5,6 +5,7 @@ module Checker (typed, showTypedExpr) where
 import Parser (Expr(..), Value(..))
 import Data.Map as Map
 import qualified Data.Maybe
+import qualified Data.List
 
 data Type =  Free String | Quantified String | Fun Type Type | Unknown
     deriving (Show, Eq)
@@ -83,9 +84,15 @@ typeExpr c (Let s t e1 e2) =
 typeExpr c NewLine = NoExpr
 typeExpr c (Error m) = ErrorT ParseError
 
-typed :: [Expr] -> [TypedExpr]
-typed = let context = insert "print" (Fun freeStr freeStr) Map.empty in
-    fmap (typeExpr context)
+typeAndAddToContext :: (Context, [TypedExpr]) -> Expr -> (Context, [TypedExpr])
+typeAndAddToContext (c, texprs) e = let typedE = typeExpr c e in case typedE of
+    (TypedLetTop s _ t) -> (insert s t c, texprs ++ [typedE]) -- TODO add type to context
+    NoExpr -> (c, texprs ++ [NoExpr])
+    _ -> error "Not a top level let at the top level"
+
+typed exprs =
+    let context = insert "print" (Fun freeStr freeStr) Map.empty in
+    Data.List.foldl typeAndAddToContext (context, []) exprs
 
 
 

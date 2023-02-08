@@ -28,4 +28,4 @@ main = do
     putStrLn "Parsed:"
     putStrLn $ concatMap prettyExpr ast
     putStrLn "Checked:"
-    putStrLn $ concatMap showTypedExpr typedAst
+    putStrLn $ concatMap showTypedExpr $ snd typedAst
