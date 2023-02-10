@@ -77,7 +77,7 @@ numberLiteral = TNumberLiteral <$> Lexer (\input -> do
 stringLiteral :: Lexer Token
 stringLiteral = TStringLiteral <$> (charLexer '"' *> spanLexer (/= '"') <* charLexer '"')
 
-specialIdentifier = TIdentifier <$> notEmpty (spanLexer (\c -> not (isSpace c) && not (isAlpha c) && not (isNumber c) && c /= 'λ'  && c /= '.' && c /= '(' && c /= ')' && c /= '=' && c /= ':' && c /= '"' && c /= '-'))
+specialIdentifier = TIdentifier <$> notEmpty (spanLexer (\c -> not (isSpace c) && not (isAlpha c) && not (isNumber c) && c /= 'λ'  && c /= '.' && c /= '(' && c /= ')' && c /= '=' && c /= ':' && c /= '"'))
 
 keywordLexer = traverse charLexer
 

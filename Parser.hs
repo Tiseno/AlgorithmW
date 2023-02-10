@@ -1,14 +1,11 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use const" #-}
 {-# HLINT ignore "Move brackets to avoid $" #-}
-module Parser (Expr(..), Value(..), parse, prettyExpr, debugExpr) where
+module Parser (Expr(..), Value(..), parseProgram, prettyExpr, debugExpr, maybeParse) where
 
 import Lexer (Token(..))
-import Control.Applicative
-import Data.Bifunctor (second)
-import Data.List (intersperse)
 
-data ErrorMessage = NoParse | MalformedAbstration | MalformedLet | UnclosedParenthesis | EndOfInput | ExpectedAssignment | UnexpectedToken Token | EOF
+data ErrorMessage = MalformedAbstration | MalformedLetBinding | UnclosedParenthesis | EndOfInput | ExpectedAssignment | UnexpectedToken Token
     deriving Show
 
 data Value = Num Int | Str String | Id String
@@ -16,7 +13,7 @@ data Value = Num Int | Str String | Id String
 
 type OfType = Maybe String
 
-data Expr = Var Value OfType | App [Expr] OfType | Abs String OfType Expr | Let String OfType Expr Expr | LetTop String OfType Expr | Enclosed Expr OfType | NewLine | Error ErrorMessage
+data Expr = Var Value OfType | App [Expr] OfType | Abs String OfType Expr | Let String OfType Expr Expr | LetTop String OfType Expr | Enclosed Expr OfType | NewLine | Error ErrorMessage | EOF
     deriving Show
 
 debugShowType (Just t) = " : " ++ t
@@ -68,8 +65,8 @@ parseSingleExpr tokens@(TLParen : xs) =
 parseSingleExpr tokens@(TLet : xs) = case xs of
     (TIdentifier i) : TAssign : xs' -> let (rest, expr) = parseExpr1 xs' in case rest of
         (TIn : xs'') -> let (rest', expr2) = parseExpr1 xs'' in (rest', Let i Nothing expr expr2)
-        _ -> (tokens, Error MalformedLet)
-    _ -> (tokens, Error MalformedLet)
+        _ -> (tokens, Error MalformedLetBinding)
+    _ -> (tokens, Error MalformedLetBinding)
 parseSingleExpr ((TIdentifier i) : xs) = (xs, Var (Id i) Nothing)
 parseSingleExpr ((TNumberLiteral n) : xs) = (xs, Var (Num n) Nothing)
 parseSingleExpr ((TStringLiteral s) : xs) = (xs, Var (Str s) Nothing)
@@ -89,17 +86,27 @@ parseAssign ((TIdentifier i) : xs) = case xs of
     (TAssign : xs') -> let (rest, result) = parseExpr1 xs' in (rest, LetTop i Nothing result)
     _ -> (xs, Error ExpectedAssignment)
 parseAssign tokens@(x:xs) = (tokens, Error (UnexpectedToken x))
-parseAssign [] = ([], Error EOF)
+parseAssign [] = ([], EOF)
 
 parseProgram' :: [Expr] -> [Token] -> ([Token], [Expr])
 parseProgram' prev tokens = let (rest, result) = parseAssign tokens in
     case result of
-        (Error _) -> (tokens, prev)
+        EOF -> (tokens, prev)
+        (Error _) -> (tokens, prev ++ [result])
         _ -> parseProgram' (prev ++ [result]) rest
 
 parseProgram :: [Token] -> [Expr]
 parseProgram tokens = snd $ parseProgram' [] tokens
 
-parse Nothing  = [Error NoParse]
-parse (Just tokens) = parseProgram tokens
+hasError :: Expr -> Bool
+hasError (Error _) = True
+hasError (App exprs _) = any hasError exprs
+hasError (Abs _ _ e) = hasError e
+hasError (LetTop _ _ e) = hasError e
+hasError (Let _ _ e1 e2) = hasError e1 || hasError e2
+hasError (Enclosed e _) = hasError e
+hasError _ = False
+
+maybeParse tokens = let parsed = parseProgram tokens in
+    if any hasError parsed then Nothing else Just parsed
 

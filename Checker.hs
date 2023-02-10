@@ -14,7 +14,7 @@ data Type =  Free String | Quantified String | Fun Type Type | Unknown
 freeNum = Free "Num"
 freeStr = Free "Str"
 
-data ErrorMessage = ApplicationMismatch Type Type | ArgumentMismatch Type Type | ParseError
+data ErrorMessage = ApplicationMismatch Type Type | ArgumentMismatch Type Type | ParseError | NoTopLevelBinding
     deriving Show
 
 data TypedExpr = TypedVar Value Type | TypedApp [TypedExpr] Type | TypedAbs String TypedExpr Type | TypedLet String TypedExpr Type TypedExpr | TypedLetTop String TypedExpr Type | NoExpr | ErrorT ErrorMessage
@@ -30,8 +30,9 @@ showType Unknown = "_"
 showTypeE t@(Fun _ _) = "(" ++ showType t ++ ")"
 showTypeE t = showType t
 
-showError (ArgumentMismatch param arg) = "Type error: tried to apply argument " ++ showType arg ++ " to function that takes a " ++ showType param ++ ""
 showError (ApplicationMismatch ft arg) = "Type error: tried to apply argument " ++ showType arg ++ " to non function " ++ showType ft ++ ""
+showError (ArgumentMismatch param arg) = "Type error: tried to apply argument " ++ showType arg ++ " to function that takes a " ++ showType param ++ ""
+showError NoTopLevelBinding = "Not a top level binding"
 showError ParseError = error "Encountered parsing error in checker"
 
 showTypedExpr :: TypedExpr -> String
@@ -92,7 +93,8 @@ typeAndAddToContext :: (Context, [TypedExpr]) -> Expr -> (Context, [TypedExpr])
 typeAndAddToContext (c, texprs) e = let typedE = typeExpr c e in case typedE of
     (TypedLetTop s _ t) -> (insert s t c, texprs ++ [typedE]) -- TODO add type to context
     NoExpr -> (c, texprs ++ [NoExpr])
-    _ -> error "Not a top level let at the top level"
+    (ErrorT ParseError) -> (c, texprs ++ [NoExpr])
+    _ -> (c, texprs ++ [ErrorT NoTopLevelBinding])
 
 typed exprs =
     let context = insert "print" (Fun freeStr freeStr) Map.empty in

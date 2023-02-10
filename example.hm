@@ -1,9 +1,8 @@
-main = print 23
-main = 23 print
-pp = print
-main = λ f . pp 23
+printHello = print "hello world"
+printTwenty = print 20
+badPrint = 20 print
+alias = print
 id = λ x . x
 k = λ x . (let f = λ y . x in f)
-
-'a Aksdj Fasd  -> 'a ->
-_ -> _
+main = λ f . alias 20
+ldskf = 2
