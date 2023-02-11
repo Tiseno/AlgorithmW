@@ -54,14 +54,6 @@ prettyExpr (Let i t e1 e2) = "let " ++ i ++ prettyShowType t ++ " = " ++ prettyE
 prettyExpr NewLine = "\n"
 prettyExpr (ParseError m) = "ERROR: " ++ show m
 
--- Grammar
--- te   := int | str
--- t    := (: te)?
--- e2   := (e1) | λid.e1 | x | num | "lit" | let x = e1 in e1
--- e1   := e2 e2*
--- a    := id t `=` e1
--- program := a*
-
 parseSingleExpr :: [Token] -> ([Token], Expr)
 parseSingleExpr tokens@(TLambda : xs) = case xs of
     (TIdentifier i) : TAbstraction : xs' -> let (rest, expr) = parseExpr1 xs' in (rest, Abs i Nothing expr)

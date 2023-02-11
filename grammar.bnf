@@ -1,0 +1,6 @@
+Literal  ::=   `"` <string> `"` | <number>
+E2       ::=   Literal | Id | `λ` Id `.` E1 | `let` Id `=` E1 `in` E1 | `(` E1 `)`
+E1       ::=   E2+
+Id       ::=   <string>
+Binding  ::=   Id `=` E1
+Program  ::=   Binding+
