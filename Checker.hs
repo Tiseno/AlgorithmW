@@ -1,7 +1,7 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Move brackets to avoid $" #-}
 {-# HLINT ignore "Use <$>" #-}
-module Checker (typed, showTypedExpr, collectErrors) where
+module Checker (typed, showTypedExpr, collectTypeErrors) where
 
 import Parser (Expr(..), Value(..))
 import Data.Map as Map
@@ -14,10 +14,10 @@ data Type =  Free String | Quantified String | Fun Type Type | Unknown
 freeNum = Free "Num"
 freeStr = Free "Str"
 
-data ErrorMessage = ApplicationMismatch Type Type | ArgumentMismatch Type Type | ParseError | NoTopLevelBinding
+data TypeErrorMessage = ApplicationMismatch Type Type | ArgumentMismatch Type Type | NoTopLevelBinding | UnexpectedParseError
     deriving Show
 
-data TypedExpr = TypedVar Value Type | TypedApp [TypedExpr] Type | TypedAbs String TypedExpr Type | TypedLet String TypedExpr Type TypedExpr | TypedLetTop String TypedExpr Type | NoExpr | ErrorT ErrorMessage
+data TypedExpr = TypedVar Value Type | TypedApp [TypedExpr] Type | TypedAbs String TypedExpr Type | TypedLet String TypedExpr Type TypedExpr | TypedLetTop String TypedExpr Type | NoExpr | TypeError TypeErrorMessage
     deriving Show
 
 showType :: Type -> String
@@ -30,10 +30,10 @@ showType Unknown = "_"
 showTypeE t@(Fun _ _) = "(" ++ showType t ++ ")"
 showTypeE t = showType t
 
-showError (ApplicationMismatch ft arg) = "Type error: tried to apply argument " ++ showType arg ++ " to non function " ++ showType ft ++ ""
-showError (ArgumentMismatch param arg) = "Type error: tried to apply argument " ++ showType arg ++ " to function that takes a " ++ showType param ++ ""
-showError NoTopLevelBinding = "Not a top level binding"
-showError ParseError = error "Encountered parsing error in checker"
+showTypeError (ApplicationMismatch ft arg) = "Type error: tried to apply argument " ++ showType arg ++ " to non function " ++ showType ft ++ ""
+showTypeError (ArgumentMismatch param arg) = "Type error: tried to apply argument " ++ showType arg ++ " to function that takes a " ++ showType param ++ ""
+showTypeError NoTopLevelBinding = "Type error: Encountered something other than a binding at the top level"
+showTypeError UnexpectedParseError = "Compiler error: Encountered parsing error in checker"
 
 showTypedExpr :: TypedExpr -> String
 showTypedExpr (TypedAbs s e Unknown) = "(λ " ++ s ++ " . " ++ showTypedExpr e ++ "):" ++ showTypeE Unknown
@@ -47,7 +47,7 @@ showTypedExpr (TypedVar (Id s) t) = s ++ ":" ++ showType t
 showTypedExpr (TypedLet i e1 t e2) = "let " ++ i ++ " : " ++ showType t ++ " = " ++ showTypedExpr e1 ++ " in " ++ showTypedExpr e2
 showTypedExpr (TypedLetTop i e t) = i ++ " : " ++ showType t ++ " = " ++ showTypedExpr e
 showTypedExpr NoExpr = "\n"
-showTypedExpr (ErrorT e) = showError e
+showTypedExpr (TypeError e) = showTypeError e
 
 type Context = Map String Type
 
@@ -58,7 +58,7 @@ typeOf (TypedAbs _ _ t) = t
 typeOf (TypedLet _ _ t _) = t
 typeOf (TypedLetTop _ _ t) = t
 typeOf NoExpr = Unknown
-typeOf (ErrorT _) = Unknown
+typeOf (TypeError _) = Unknown
 
 typeValue :: Context -> Value -> Type
 typeValue _ (Num _) = freeNum
@@ -74,9 +74,9 @@ typeExpr c (App [e1, e2] ta) =
         case typeOf typedE1 of
             f@(Fun param return) -> case typeOf typedE2 of
                 Unknown -> TypedApp [typedE1, typedE2] Unknown -- TODO infer
-                arg -> if param == arg then TypedApp [typedE1, typedE2] return else ErrorT (ArgumentMismatch param arg)
+                arg -> if param == arg then TypedApp [typedE1, typedE2] return else TypeError (ArgumentMismatch param arg)
             Unknown -> TypedApp [typedE1, typedE2] Unknown -- TODO infer
-            ft -> ErrorT (ApplicationMismatch ft (typeOf typedE2))
+            ft -> TypeError (ApplicationMismatch ft (typeOf typedE2))
 typeExpr c (App _ ta) = undefined
 typeExpr c (Abs s ta e) = let typedE = typeExpr c e in TypedAbs s typedE (Fun Unknown (typeOf typedE)) -- TODO argtype need to get from context of typedE and unify with type assert ta
 typeExpr c (Enclosed e t) =  typeExpr c e
@@ -87,27 +87,27 @@ typeExpr c (Let s t e1 e2) =
     in TypedLet s typedE1 (typeOf typedE1) typedE2
 -- TODO remove these
 typeExpr c NewLine = NoExpr
-typeExpr c (Error m) = ErrorT ParseError
+typeExpr c (ParseError m) = TypeError UnexpectedParseError
 
 typeAndAddToContext :: (Context, [TypedExpr]) -> Expr -> (Context, [TypedExpr])
 typeAndAddToContext (c, texprs) e = let typedE = typeExpr c e in case typedE of
     (TypedLetTop s _ t) -> (insert s t c, texprs ++ [typedE]) -- TODO add type to context
     NoExpr -> (c, texprs ++ [NoExpr])
-    (ErrorT ParseError) -> (c, texprs ++ [NoExpr])
-    _ -> (c, texprs ++ [ErrorT NoTopLevelBinding])
+    (TypeError UnexpectedParseError) -> (c, texprs ++ [NoExpr])
+    _ -> (c, texprs ++ [TypeError NoTopLevelBinding])
 
 typed exprs =
     let context = insert "print" (Fun freeStr freeStr) Map.empty in
     Data.List.foldl typeAndAddToContext (context, []) exprs
 
-collectError :: [ErrorMessage] -> TypedExpr -> [ErrorMessage]
-collectError prev n@(TypedApp exprs _) = Data.List.foldl collectError prev exprs
-collectError prev n@(TypedAbs _ e _) = collectError prev e
-collectError prev n@(TypedLet _ e _ e2) = collectError (collectError prev e) e2
-collectError prev n@(TypedLetTop _ e _) = collectError prev e
-collectError prev (ErrorT m) = prev ++ [m]
-collectError prev e = prev
+collectTypeError :: [TypeErrorMessage] -> TypedExpr -> [TypeErrorMessage]
+collectTypeError prev n@(TypedApp exprs _) = Data.List.foldl collectTypeError prev exprs
+collectTypeError prev n@(TypedAbs _ e _) = collectTypeError prev e
+collectTypeError prev n@(TypedLet _ e _ e2) = collectTypeError (collectTypeError prev e) e2
+collectTypeError prev n@(TypedLetTop _ e _) = collectTypeError prev e
+collectTypeError prev (TypeError m) = prev ++ [m]
+collectTypeError prev e = prev
 
-collectErrors :: [TypedExpr] -> [String]
-collectErrors exprs = fmap showError $ Data.List.foldl collectError ([] :: [ErrorMessage]) exprs
+collectTypeErrors :: [TypedExpr] -> [String]
+collectTypeErrors exprs = fmap showTypeError $ Data.List.foldl collectTypeError ([] :: [TypeErrorMessage]) exprs
 
