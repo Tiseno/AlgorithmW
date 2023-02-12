@@ -7,6 +7,7 @@ import Parser (Expr(..), Value(..))
 import Data.Map as Map
 import qualified Data.Maybe
 import qualified Data.List
+import qualified Data.Char
 
 data Type =  Free String | Quantified String | Fun Type Type | Unknown
     deriving (Show, Eq)
@@ -23,7 +24,7 @@ data TypedExpr = TypedVar Value Type | TypedApp [TypedExpr] Type | TypedAbs Stri
 
 showType :: Type -> String
 showType (Free s) = s
-showType (Quantified s) = "'"++s
+showType (Quantified i) = "'" ++ show i
 showType (Fun t1@(Fun _ _) t2) = "(" ++ showType t1 ++ ") -> " ++ showType t2
 showType (Fun t1 t2) = showType t1 ++ " -> " ++ showType t2
 showType Unknown = "_"
@@ -52,7 +53,10 @@ showTypedExpr (TypedLetTop i e t) = i ++ " : " ++ showType t ++ " = " ++ showTyp
 showTypedExpr NoExpr = "\n"
 showTypedExpr (TypeError e) = showTypeError e
 
-type Context = Map String Type
+type Context = (Map String Type, Int)
+
+newVar :: Context -> (Context, String)
+newVar (m, i) = ((m, i + 1), [Data.Char.chr i])
 
 typeOf :: TypedExpr -> Type
 typeOf (TypedVar _ t) = t
@@ -67,42 +71,43 @@ typeValue :: Context -> Value -> Type
 typeValue _ (Bol _) = freeBool
 typeValue _ (Num _) = freeNum
 typeValue _ (Str _) = freeStr
-typeValue c (Id s) = Data.Maybe.fromMaybe Unknown (Map.lookup s c)
+typeValue (m, _) (Id s) = Data.Maybe.fromMaybe Unknown (Map.lookup s m)
 
 -- https://en.wikipedia.org/wiki/Hindley%E2%80%93Milner_type_system#Algorithm_J
-typeExpr :: Context -> Expr -> TypedExpr
-typeExpr c (Var value ta) = TypedVar value (typeValue c value)
+typeExpr :: Context -> Expr -> (Context, TypedExpr)
+typeExpr c (Var value ta) = (c, TypedVar value (typeValue c value))
 typeExpr c (App [e1, e2] ta) =
-    let typedE1 = typeExpr c e1
-        typedE2 = typeExpr c e2 in
+    let (c', typedE1) = typeExpr c e1 in
+    let (c'', typedE2) = typeExpr c' e2 in
     case (typeOf typedE1, typeOf typedE2) of
-        (Fun Unknown return, _) -> TypedApp [typedE1, typedE2] return
-        (Fun _ return, Unknown) -> TypedApp [typedE1, typedE2] return
-        (Fun param return, arg) -> if param == arg then TypedApp [typedE1, typedE2] return else TypeError (ArgumentMismatch param arg)
-        (Unknown, _) -> TypedApp [typedE1, typedE2] Unknown
-        (f, arg) -> TypeError (ApplicationMismatch f arg)
-typeExpr c (App _ _) = undefined
-typeExpr c (Abs s ta e) = let typedE = typeExpr c e in TypedAbs s typedE (Fun Unknown (typeOf typedE)) -- TODO argtype need to get from context of typedE and unify with type assert ta
-typeExpr c (Enclosed e _) =  typeExpr c e
-typeExpr c (LetTop s _ e) = let typedE = typeExpr c e in TypedLetTop s typedE (typeOf typedE)
+        (Fun Unknown return, _) -> (c'', TypedApp [typedE1, typedE2] return)
+        (Fun _ return, Unknown) -> (c'', TypedApp [typedE1, typedE2] return)
+        (Fun param return, arg) -> if param == arg then (c'', TypedApp [typedE1, typedE2] return) else (c'', TypeError (ArgumentMismatch param arg))
+        (Unknown, _) -> (c'', TypedApp [typedE1, typedE2] Unknown)
+        (f, arg) -> (c'', TypeError (ApplicationMismatch f arg))
+typeExpr c (App _ _) = error "we only support single application right now"
+typeExpr c (Abs s ta e) = let (c', typedE) = typeExpr c e in (c', TypedAbs s typedE (Fun Unknown (typeOf typedE))) -- TODO argtype need to get from context of typedE and unify with type assert ta
+typeExpr c (Enclosed e _) = typeExpr c e
+typeExpr c (LetTop s _ e) = let (c', typedE) = typeExpr c e in (c', TypedLetTop s typedE (typeOf typedE))
 typeExpr c (Let s _ e1 e2) =
-    let typedE1 = typeExpr c e1 in
-    let newContext = insert s (typeOf typedE1) c in
-    let typedE2 = typeExpr newContext e2 in
-    TypedLet s typedE1 typedE2
+    let ((m, i), typedE1) = typeExpr c e1 in
+    let newContext = (insert s (typeOf typedE1) m, i) in
+    let (c', typedE2) = typeExpr newContext e2 in
+    (c', TypedLet s typedE1 typedE2)
 -- TODO remove these
-typeExpr c NewLine = NoExpr
-typeExpr c (ParseError m) = TypeError UnexpectedParseError
+typeExpr c NewLine = (c, NoExpr)
+typeExpr c (ParseError m) = (c, TypeError UnexpectedParseError)
 
 typeAndAddToContext :: (Context, [TypedExpr]) -> Expr -> (Context, [TypedExpr])
-typeAndAddToContext (c, texprs) e = let typedE = typeExpr c e in case typedE of
-    (TypedLetTop s _ t) -> (insert s t c, texprs ++ [typedE]) -- TODO add type to context
-    NoExpr -> (c, texprs ++ [NoExpr])
-    (TypeError UnexpectedParseError) -> (c, texprs ++ [NoExpr])
-    _ -> (c, texprs ++ [TypeError NoTopLevelBinding])
+typeAndAddToContext (c, texprs) e = let (c'@(m, i), typedE) = typeExpr c e in
+    case typedE of
+        (TypedLetTop s _ t) -> ((insert s t m, i), texprs ++ [typedE])
+        NoExpr -> (c', texprs ++ [NoExpr])
+        (TypeError UnexpectedParseError) -> (c', texprs ++ [NoExpr])
+        _ -> (c', texprs ++ [TypeError NoTopLevelBinding])
 
 typed exprs =
-    let context = insert "print" (Fun freeStr freeStr) Map.empty in
+    let context = (insert "print" (Fun freeStr freeStr) Map.empty, Data.Char.ord 'a') in
     Data.List.foldl typeAndAddToContext (context, []) exprs
 
 collectTypeError :: [TypeErrorMessage] -> TypedExpr -> [TypeErrorMessage]
