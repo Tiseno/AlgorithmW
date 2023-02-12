@@ -1,8 +1,10 @@
-printHello = print "hello world"
-printTwenty = print 20
+alias = print _5 dflk
+printTwenty = true
 badPrint = 20 print
-alias = print
+hello = "Hello world"
 id = λ x . x
 k = λ x . (let f = λ y . x in f)
+kk = λ x . let f = λ y . x in f
+kkk = λ x . λ y . x
 main = λ f . alias 20
 ldskf = 2

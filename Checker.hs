@@ -11,6 +11,7 @@ import qualified Data.List
 data Type =  Free String | Quantified String | Fun Type Type | Unknown
     deriving (Show, Eq)
 
+freeBool = Free "Bool"
 freeNum = Free "Num"
 freeStr = Free "Str"
 
@@ -40,6 +41,8 @@ showTypedExpr (TypedAbs s e Unknown) = "(λ " ++ s ++ " . " ++ showTypedExpr e +
 showTypedExpr (TypedAbs s e t@(Fun argType _)) = "(λ " ++ s ++ " : " ++ showType argType ++ " . " ++ showTypedExpr e ++ "):" ++ showTypeE t
 showTypedExpr (TypedAbs s e _) = error "Abstraction should never be inferred to be other than Unknown or Function"
 showTypedExpr (TypedApp exprs t) = "(" ++ (unwords $ fmap showTypedExpr exprs) ++ "):" ++ showTypeE t
+showTypedExpr (TypedVar (Bol True) t) = "true:" ++ showType t
+showTypedExpr (TypedVar (Bol False) t) = "false:" ++ showType t
 showTypedExpr (TypedVar (Num i) t) = show i ++ ":" ++ showType t
 showTypedExpr (TypedVar (Str s) t) = "\"" ++ s ++ "\"" ++ ":" ++ showType t
 showTypedExpr (TypedVar (Id s) t@(Fun _ _)) = s ++ ":" ++ showTypeE t
@@ -61,6 +64,7 @@ typeOf NoExpr = Unknown
 typeOf (TypeError _) = Unknown
 
 typeValue :: Context -> Value -> Type
+typeValue _ (Bol _) = freeBool
 typeValue _ (Num _) = freeNum
 typeValue _ (Str _) = freeStr
 typeValue c (Id s) = Data.Maybe.fromMaybe Unknown (Map.lookup s c)

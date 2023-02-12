@@ -16,7 +16,7 @@ showParseError EndOfInput = "Parse error: reached end of input"
 showParseError ExpectedAssignment = "Parse error: expected assignment"
 showParseError (UnexpectedToken t) = "Parse error: unexpected token " ++ show t
 
-data Value = Num Int | Str String | Id String
+data Value = Bol Bool | Num Int | Str String | Id String
     deriving Show
 
 type OfType = Maybe String
@@ -28,6 +28,7 @@ debugShowType (Just t) = " : " ++ t
 debugShowType _ = " : _"
 
 debugExpr :: Expr -> String
+debugExpr (Var (Bol b) t) = "Bool [" ++ show b ++ debugShowType t ++ "]"
 debugExpr (Var (Num i) t) = "Num [" ++ show i ++ debugShowType t ++ "]"
 debugExpr (Var (Str s) t) = "Str [\"" ++ s ++ "\"" ++ debugShowType t ++ "]"
 debugExpr (Var (Id s) t) = "Id [" ++ s ++ debugShowType t ++ "]"
@@ -45,6 +46,8 @@ prettyShowType _ = ""
 prettyExpr :: Expr -> String
 prettyExpr (Abs s t e) = "λ " ++ s ++ prettyShowType t ++ " . " ++ prettyExpr e
 prettyExpr (App exprs _) = unwords $ fmap prettyExpr exprs
+prettyExpr (Var (Bol True) t) = "true" ++ prettyShowType t
+prettyExpr (Var (Bol False) t) = "false" ++ prettyShowType t
 prettyExpr (Var (Num i) t) = show i ++ prettyShowType t
 prettyExpr (Var (Str s) t) = "\"" ++ s ++ "\"" ++ prettyShowType t
 prettyExpr (Var (Id s) t) = s ++ prettyShowType t
@@ -70,6 +73,7 @@ parseSingleExpr tokens@(TLet : xs) = case xs of
 parseSingleExpr ((TIdentifier i) : xs) = (xs, Var (Id i) Nothing)
 parseSingleExpr ((TNumberLiteral n) : xs) = (xs, Var (Num n) Nothing)
 parseSingleExpr ((TStringLiteral s) : xs) = (xs, Var (Str s) Nothing)
+parseSingleExpr ((TBoolLiteral b) : xs) = (xs, Var (Bol b) Nothing)
 parseSingleExpr tokens = (tokens, ParseError EndOfInput)
 
 parseExpr1' :: [Expr] -> [Token] -> ([Token], [Expr])

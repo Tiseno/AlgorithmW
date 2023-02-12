@@ -9,6 +9,9 @@ syntax match   hmFunction           "λ"
 syntax match   hmFunction           "\."
 highlight link hmFunction Function
 
+syntax keyword hmBoolean            true false
+highlight link hmBoolean Number
+
 syntax match   hmNumber             "\<\d*\>"
 highlight link hmNumber Number
 

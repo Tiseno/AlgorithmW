@@ -19,9 +19,10 @@ data Token = TNewLine
     | TOfType         -- :
     | TLet            -- let
     | TIn             -- in
-    | TIdentifier String
+    | TBoolLiteral Bool
     | TNumberLiteral Int
     | TStringLiteral String
+    | TIdentifier String
     -- | TComment String -- -- a comment
     -- | TTypeIdentifier String
     deriving Show
@@ -84,6 +85,11 @@ keywordLexer = traverse charLexer
 keywordLet = const TLet <$> keywordLexer "let"
 keywordIn  = const TIn  <$> keywordLexer "in"
 
+boolLiteral = tokenConstructor <$> (keywordLexer "true" <|> keywordLexer "false")
+    where
+        tokenConstructor "true" = TBoolLiteral True
+        tokenConstructor "false" = TBoolLiteral False
+
 testTokenLexer name (lexer :: Lexer Token) = do
     putStr (name ++ " token > ")
     input <- getLine
@@ -112,9 +118,10 @@ tokenize s = snd <$> runLexer (sepBy whitespace (
     <|> ofType
     <|> keywordLet
     <|> keywordIn
-    <|> identifier
+    <|> boolLiteral
     <|> numberLiteral
     <|> stringLiteral
+    <|> identifier
     <|> specialIdentifier
     )) s
 
