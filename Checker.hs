@@ -18,7 +18,7 @@ freeStr = Free "Str"
 data TypeErrorMessage = ApplicationMismatch Type Type | ArgumentMismatch Type Type | NoTopLevelBinding | UnexpectedParseError
     deriving Show
 
-data TypedExpr = TypedVar Value Type | TypedApp [TypedExpr] Type | TypedAbs String TypedExpr Type | TypedLet String TypedExpr Type TypedExpr | TypedLetTop String TypedExpr Type | NoExpr | TypeError TypeErrorMessage
+data TypedExpr = TypedVar Value Type | TypedApp [TypedExpr] Type | TypedAbs String TypedExpr Type | TypedLet String TypedExpr TypedExpr | TypedLetTop String TypedExpr Type | NoExpr | TypeError TypeErrorMessage
     deriving Show
 
 showType :: Type -> String
@@ -31,8 +31,8 @@ showType Unknown = "_"
 showTypeE t@(Fun _ _) = "(" ++ showType t ++ ")"
 showTypeE t = showType t
 
-showTypeError (ApplicationMismatch ft arg) = "Type error: tried to apply argument " ++ showType arg ++ " to non function " ++ showType ft ++ ""
-showTypeError (ArgumentMismatch param arg) = "Type error: tried to apply argument " ++ showType arg ++ " to function that takes a " ++ showType param ++ ""
+showTypeError (ApplicationMismatch ft arg) = "Type error: tried to apply argument of type '" ++ showType arg ++ "' to non function of type '" ++ showType ft ++ "'"
+showTypeError (ArgumentMismatch param arg) = "Type error: tried to apply argument of type '" ++ showType arg ++ "' to function that takes a '" ++ showType param ++ "'"
 showTypeError NoTopLevelBinding = "Type error: Encountered something other than a binding at the top level"
 showTypeError UnexpectedParseError = "Compiler error: Encountered parsing error in checker"
 
@@ -47,7 +47,7 @@ showTypedExpr (TypedVar (Num i) t) = show i ++ ":" ++ showType t
 showTypedExpr (TypedVar (Str s) t) = "\"" ++ s ++ "\"" ++ ":" ++ showType t
 showTypedExpr (TypedVar (Id s) t@(Fun _ _)) = s ++ ":" ++ showTypeE t
 showTypedExpr (TypedVar (Id s) t) = s ++ ":" ++ showType t
-showTypedExpr (TypedLet i e1 t e2) = "let " ++ i ++ " : " ++ showType t ++ " = " ++ showTypedExpr e1 ++ " in " ++ showTypedExpr e2
+showTypedExpr (TypedLet i e1 e2) = "let " ++ i ++ " : " ++ showType (typeOf e1) ++ " = " ++ showTypedExpr e1 ++ " in " ++ showTypedExpr e2
 showTypedExpr (TypedLetTop i e t) = i ++ " : " ++ showType t ++ " = " ++ showTypedExpr e
 showTypedExpr NoExpr = "\n"
 showTypedExpr (TypeError e) = showTypeError e
@@ -58,7 +58,7 @@ typeOf :: TypedExpr -> Type
 typeOf (TypedVar _ t) = t
 typeOf (TypedApp _ t) = t
 typeOf (TypedAbs _ _ t) = t
-typeOf (TypedLet _ _ t _) = t
+typeOf (TypedLet _ _ e) = typeOf e
 typeOf (TypedLetTop _ _ t) = t
 typeOf NoExpr = Unknown
 typeOf (TypeError _) = Unknown
@@ -69,26 +69,27 @@ typeValue _ (Num _) = freeNum
 typeValue _ (Str _) = freeStr
 typeValue c (Id s) = Data.Maybe.fromMaybe Unknown (Map.lookup s c)
 
--- syntax directed https://en.wikipedia.org/wiki/Hindley%E2%80%93Milner_type_system#Syntax-directed_rule_system
+-- https://en.wikipedia.org/wiki/Hindley%E2%80%93Milner_type_system#Algorithm_J
 typeExpr :: Context -> Expr -> TypedExpr
 typeExpr c (Var value ta) = TypedVar value (typeValue c value)
 typeExpr c (App [e1, e2] ta) =
     let typedE1 = typeExpr c e1
         typedE2 = typeExpr c e2 in
-        case typeOf typedE1 of
-            f@(Fun param return) -> case typeOf typedE2 of
-                Unknown -> TypedApp [typedE1, typedE2] Unknown -- TODO infer
-                arg -> if param == arg then TypedApp [typedE1, typedE2] return else TypeError (ArgumentMismatch param arg)
-            Unknown -> TypedApp [typedE1, typedE2] Unknown -- TODO infer
-            ft -> TypeError (ApplicationMismatch ft (typeOf typedE2))
-typeExpr c (App _ ta) = undefined
+    case (typeOf typedE1, typeOf typedE2) of
+        (Fun Unknown return, _) -> TypedApp [typedE1, typedE2] return
+        (Fun _ return, Unknown) -> TypedApp [typedE1, typedE2] return
+        (Fun param return, arg) -> if param == arg then TypedApp [typedE1, typedE2] return else TypeError (ArgumentMismatch param arg)
+        (Unknown, _) -> TypedApp [typedE1, typedE2] Unknown
+        (f, arg) -> TypeError (ApplicationMismatch f arg)
+typeExpr c (App _ _) = undefined
 typeExpr c (Abs s ta e) = let typedE = typeExpr c e in TypedAbs s typedE (Fun Unknown (typeOf typedE)) -- TODO argtype need to get from context of typedE and unify with type assert ta
-typeExpr c (Enclosed e t) =  typeExpr c e
-typeExpr c (LetTop s t e) = let typedE = typeExpr c e in TypedLetTop s typedE (typeOf typedE)
-typeExpr c (Let s t e1 e2) =
-    let typedE1 = typeExpr c e1
-        typedE2 = typeExpr c e2
-    in TypedLet s typedE1 (typeOf typedE1) typedE2
+typeExpr c (Enclosed e _) =  typeExpr c e
+typeExpr c (LetTop s _ e) = let typedE = typeExpr c e in TypedLetTop s typedE (typeOf typedE)
+typeExpr c (Let s _ e1 e2) =
+    let typedE1 = typeExpr c e1 in
+    let newContext = insert s (typeOf typedE1) c in
+    let typedE2 = typeExpr newContext e2 in
+    TypedLet s typedE1 typedE2
 -- TODO remove these
 typeExpr c NewLine = NoExpr
 typeExpr c (ParseError m) = TypeError UnexpectedParseError
@@ -107,7 +108,7 @@ typed exprs =
 collectTypeError :: [TypeErrorMessage] -> TypedExpr -> [TypeErrorMessage]
 collectTypeError prev n@(TypedApp exprs _) = Data.List.foldl collectTypeError prev exprs
 collectTypeError prev n@(TypedAbs _ e _) = collectTypeError prev e
-collectTypeError prev n@(TypedLet _ e _ e2) = collectTypeError (collectTypeError prev e) e2
+collectTypeError prev n@(TypedLet _ e e2) = collectTypeError (collectTypeError prev e) e2
 collectTypeError prev n@(TypedLetTop _ e _) = collectTypeError prev e
 collectTypeError prev (TypeError m) = prev ++ [m]
 collectTypeError prev e = prev
