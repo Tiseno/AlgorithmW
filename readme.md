@@ -10,3 +10,8 @@ make build
 Type error: tried to apply argument Num to function that takes a Str
 Type error: tried to apply argument Str -> Str to non function Num
 ```
+
+
+### Resources
+https://martinsteffen.github.io/staticanalysis/typeinfalgos/
+https://homepages.inf.ed.ac.uk/wadler/papers/papers-we-love/milner-type-polymorphism.pdf

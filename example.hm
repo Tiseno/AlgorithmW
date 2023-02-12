@@ -1,4 +1,5 @@
-untypable = λ x . x x
+t = λ h . print
+t = λ x . 34 23
 k = let f = λ x . 23 in λ l . f
 l = k 23
 ll = l 23

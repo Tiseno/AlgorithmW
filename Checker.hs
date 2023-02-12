@@ -9,12 +9,53 @@ import qualified Data.Maybe
 import qualified Data.List
 import qualified Data.Char
 
-data Type =  Free String | Quantified String | Fun Type Type | Unknown
+data TMono = TConst String | TVar String | TFun TMono TMono | TApp String [TMono] | Unknown
     deriving (Show, Eq)
 
-freeBool = Free "Bool"
-freeNum = Free "Num"
-freeStr = Free "Str"
+createFnType :: TMono -> Type -> Type
+createFnType m t@(TQuantifier s p)  = TQuantifier s (createFnType m p)
+createFnType m t@(TPMono m2) = TPMono $ TFun m m2
+
+boolType = TConst "Bool"
+numType = TConst "Num"
+strType = TConst "Str"
+
+data Type =  TQuantifier String Type | TPMono TMono
+    deriving (Show, Eq)
+
+showTMono :: TMono -> String
+showTMono (TConst s) = s
+showTMono (TVar s) = s
+showTMono (TFun t1@(TFun _ _) t2) = "(" ++ showTMono t1 ++ ") -> " ++ showTMono t2
+showTMono (TFun t1 t2) = showTMono t1 ++ " -> " ++ showTMono t2
+showTMono (TApp s ms) = s ++ " " ++ (unwords $ fmap showTMonoE ms)
+showTMono Unknown = "_"
+
+showTMonoE t@(TConst _) = showTMono t
+showTMonoE t@(TVar _) = showTMono t
+showTMonoE t = "(" ++ showTMono t ++ ")"
+
+showTPoly :: Type -> String
+showTPoly (TQuantifier s p) = "∀ " ++ s ++ " . " ++ showTPoly p
+showTPoly (TPMono m) = showTMono m
+
+showTPolyE t@(TPMono (TConst _)) = showTPoly t
+showTPolyE t@(TPMono (TVar _)) = showTPoly t
+showTPolyE t = "(" ++ showTPoly t ++ ")"
+
+occursM :: String -> TMono -> Bool
+occursM s (TConst c) = False
+occursM s (TVar c) = s == c
+occursM s (TFun e1 e2) = occursM s e1 || occursM s e2
+occursM s (TApp m ms) = any (occursM s) ms
+
+occursP :: String -> Type -> Bool
+occursP s (TQuantifier _ p) = occursP s p
+occursP s (TPMono m) = occursM s m
+
+normalizeQuantified :: Type -> Type
+normalizeQuantified (TQuantifier s p) = if occursP s p then TQuantifier s (normalizeQuantified p) else normalizeQuantified p
+normalizeQuantified e = e
 
 data TypeErrorMessage = ApplicationMismatch Type Type | ArgumentMismatch Type Type | NoTopLevelBinding | UnexpectedParseError
     deriving Show
@@ -22,33 +63,23 @@ data TypeErrorMessage = ApplicationMismatch Type Type | ArgumentMismatch Type Ty
 data TypedExpr = TypedVar Value Type | TypedApp [TypedExpr] Type | TypedAbs String TypedExpr Type | TypedLet String TypedExpr TypedExpr | TypedLetTop String TypedExpr Type | NoExpr | TypeError TypeErrorMessage
     deriving Show
 
-showType :: Type -> String
-showType (Free s) = s
-showType (Quantified i) = "'" ++ show i
-showType (Fun t1@(Fun _ _) t2) = "(" ++ showType t1 ++ ") -> " ++ showType t2
-showType (Fun t1 t2) = showType t1 ++ " -> " ++ showType t2
-showType Unknown = "_"
+showType = showTPoly
+showTypeE = showTPolyE
 
-showTypeE t@(Fun _ _) = "(" ++ showType t ++ ")"
-showTypeE t = showType t
-
-showTypeError (ApplicationMismatch ft arg) = "Type error: tried to apply argument of type '" ++ showType arg ++ "' to non function of type '" ++ showType ft ++ "'"
-showTypeError (ArgumentMismatch param arg) = "Type error: tried to apply argument of type '" ++ showType arg ++ "' to function that takes a '" ++ showType param ++ "'"
+showTypeError (ApplicationMismatch ft arg) = "Type error: tried to apply argument of type " ++ showTypeE arg ++ " to non function of type " ++ showTypeE ft ++ ""
+showTypeError (ArgumentMismatch param arg) = "Type error: tried to apply argument of type " ++ showTypeE arg ++ " to function that takes a " ++ showTypeE param ++ ""
 showTypeError NoTopLevelBinding = "Type error: Encountered something other than a binding at the top level"
 showTypeError UnexpectedParseError = "Compiler error: Encountered parsing error in checker"
 
 showTypedExpr :: TypedExpr -> String
-showTypedExpr (TypedAbs s e Unknown) = "(λ " ++ s ++ " . " ++ showTypedExpr e ++ "):" ++ showTypeE Unknown
-showTypedExpr (TypedAbs s e t@(Fun argType _)) = "(λ " ++ s ++ " : " ++ showType argType ++ " . " ++ showTypedExpr e ++ "):" ++ showTypeE t
-showTypedExpr (TypedAbs s e _) = error "Abstraction should never be inferred to be other than Unknown or Function"
+showTypedExpr (TypedAbs s e t) = "(λ " ++ s ++ " . " ++ showTypedExpr e ++ "):" ++ showTypeE t
 showTypedExpr (TypedApp exprs t) = "(" ++ (unwords $ fmap showTypedExpr exprs) ++ "):" ++ showTypeE t
 showTypedExpr (TypedVar (Bol True) t) = "true:" ++ showType t
 showTypedExpr (TypedVar (Bol False) t) = "false:" ++ showType t
 showTypedExpr (TypedVar (Num i) t) = show i ++ ":" ++ showType t
 showTypedExpr (TypedVar (Str s) t) = "\"" ++ s ++ "\"" ++ ":" ++ showType t
-showTypedExpr (TypedVar (Id s) t@(Fun _ _)) = s ++ ":" ++ showTypeE t
 showTypedExpr (TypedVar (Id s) t) = s ++ ":" ++ showType t
-showTypedExpr (TypedLet i e1 e2) = "let " ++ i ++ " : " ++ showType (typeOf e1) ++ " = " ++ showTypedExpr e1 ++ " in " ++ showTypedExpr e2
+showTypedExpr (TypedLet i e1 e2) = "(let " ++ i ++ " : " ++ showType (typeOf e1) ++ " = " ++ showTypedExpr e1 ++ " in " ++ showTypedExpr e2 ++ "):" ++ showType (typeOf e2)
 showTypedExpr (TypedLetTop i e t) = i ++ " : " ++ showType t ++ " = " ++ showTypedExpr e
 showTypedExpr NoExpr = "\n"
 showTypedExpr (TypeError e) = showTypeError e
@@ -64,29 +95,35 @@ typeOf (TypedApp _ t) = t
 typeOf (TypedAbs _ _ t) = t
 typeOf (TypedLet _ _ e) = typeOf e
 typeOf (TypedLetTop _ _ t) = t
-typeOf NoExpr = Unknown
-typeOf (TypeError _) = Unknown
+typeOf NoExpr = TPMono Unknown
+typeOf (TypeError _) = TPMono Unknown
 
-typeValue :: Context -> Value -> Type
-typeValue _ (Bol _) = freeBool
-typeValue _ (Num _) = freeNum
-typeValue _ (Str _) = freeStr
-typeValue (m, _) (Id s) = Data.Maybe.fromMaybe Unknown (Map.lookup s m)
+typeVar :: Context -> Value -> (Context, Type)
+typeVar c (Bol _) = (c, TPMono boolType)
+typeVar c (Num _) = (c, TPMono numType)
+typeVar c (Str _) = (c, TPMono strType)
+typeVar c@(m, _) (Id s) = case Map.lookup s m of
+    Just some -> (c, some)
+    Nothing -> (c, TPMono Unknown) -- let (c', s) = newVar c in (c', Quantified s) -- NOTE inst should be used here, newVar belongs in App and Abs
 
 -- https://en.wikipedia.org/wiki/Hindley%E2%80%93Milner_type_system#Algorithm_J
 typeExpr :: Context -> Expr -> (Context, TypedExpr)
-typeExpr c (Var value ta) = (c, TypedVar value (typeValue c value))
+typeExpr c (Var value ta) = let (c', t) = typeVar c value in (c', TypedVar value t)
 typeExpr c (App [e1, e2] ta) =
     let (c', typedE1) = typeExpr c e1 in
     let (c'', typedE2) = typeExpr c' e2 in
     case (typeOf typedE1, typeOf typedE2) of
-        (Fun Unknown return, _) -> (c'', TypedApp [typedE1, typedE2] return)
-        (Fun _ return, Unknown) -> (c'', TypedApp [typedE1, typedE2] return)
-        (Fun param return, arg) -> if param == arg then (c'', TypedApp [typedE1, typedE2] return) else (c'', TypeError (ArgumentMismatch param arg))
-        (Unknown, _) -> (c'', TypedApp [typedE1, typedE2] Unknown)
+        (TPMono (TFun Unknown return), _) -> (c'', TypedApp [typedE1, typedE2] (TPMono return))
+        (TPMono (TFun _ return), TPMono Unknown) -> (c'', TypedApp [typedE1, typedE2] (TPMono return))
+        (TPMono (TFun param return), TPMono arg) -> if param == arg then (c'', TypedApp [typedE1, typedE2] (TPMono return)) else (c'', TypeError (ArgumentMismatch (TPMono param) (TPMono arg)))
+        -- TODO handle when typedE2 is polytype, what should happen?
+        (TPMono Unknown, _) -> (c'', TypedApp [typedE1, typedE2] (TPMono Unknown))
         (f, arg) -> (c'', TypeError (ApplicationMismatch f arg))
 typeExpr c (App _ _) = error "we only support single application right now"
-typeExpr c (Abs s ta e) = let (c', typedE) = typeExpr c e in (c', TypedAbs s typedE (Fun Unknown (typeOf typedE))) -- TODO argtype need to get from context of typedE and unify with type assert ta
+typeExpr c (Abs s ta e) =
+    let (c', v) = newVar c in
+    let (c'', typedE) = typeExpr c e in
+    (c', TypedAbs s typedE (createFnType Unknown (typeOf typedE))) -- TODO argtype need to get from context of typedE and unify with type assert ta
 typeExpr c (Enclosed e _) = typeExpr c e
 typeExpr c (LetTop s _ e) = let (c', typedE) = typeExpr c e in (c', TypedLetTop s typedE (typeOf typedE))
 typeExpr c (Let s _ e1 e2) =
@@ -107,7 +144,7 @@ typeAndAddToContext (c, texprs) e = let (c'@(m, i), typedE) = typeExpr c e in
         _ -> (c', texprs ++ [TypeError NoTopLevelBinding])
 
 typed exprs =
-    let context = (insert "print" (Fun freeStr freeStr) Map.empty, Data.Char.ord 'a') in
+    let context = (insert "print" (TPMono (TFun strType strType)) Map.empty, Data.Char.ord 'a') in
     Data.List.foldl typeAndAddToContext (context, []) exprs
 
 collectTypeError :: [TypeErrorMessage] -> TypedExpr -> [TypeErrorMessage]
