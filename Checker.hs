@@ -92,20 +92,28 @@ typeOf (TypedLetTop _ _ t) = t
 typeOf NoExpr = TPoly [] Unknown
 typeOf (TypeError _) = TPoly [] Unknown
 
-type Context = (Map String PolyType, Int)
+type NewVar = Int
+type NewInst = Int
+
+type State = (NewVar, NewInst)
+
+newVar :: State -> (MonoType, State)
+newVar (nv, ni) = (TVar ("'" ++ [Data.Char.chr nv]), (nv + 1, ni))
+
+newInst :: State -> (MonoType, State)
+newInst (nv, ni) = (TVar ("'t" ++ show ni), (nv, ni + 1))
+
+type Context = Map String PolyType
 
 typeVar :: Context -> Value -> Maybe PolyType
 typeVar c (Bol _) = Just $ TPoly [] boolType
 typeVar c (Num _) = Just $ TPoly [] numType
 typeVar c (Str _) = Just $ TPoly [] strType
-typeVar c@(m, _) (Id s) = Map.lookup s m -- TODO Do inst
+typeVar c (Id s) = Map.lookup s c -- TODO Do inst
 
 type Substitution = [(String, String)]
 
 -- inst :: PolyType -> MonoType
-
-newVar :: Context -> (MonoType, Context)
-newVar (m, i) = (TVar ("'" ++ [Data.Char.chr i]), (m, i + 1))
 
 -- This is gamma bar in the let rule (Γ)
 generalize :: Context -> MonoType -> Context
@@ -122,53 +130,58 @@ toPoly m = TPoly [] m
 -- https://en.wikipedia.org/wiki/Hindley%E2%80%93Milner_type_system#Algorithm_W
 -- TODO algorithmW should only produce mono types and only the let rule should produce one polytype internally
 -- TODO We should separate the two parts of the context, only the alphabet counter is allowed to mutate between calls to algorithmW
-algorithmW :: Context -> Expr -> (TypedExpr, PolyType, Substitution, Context)
-algorithmW c (Var term _) = let maybeType = typeVar c term in case maybeType of
-    Just t -> (TypedVar term t, t, [], c)
-    Nothing -> (TypeError (UnboundVar term), polyUnknown, [], c)
-algorithmW c (App [e1, e2] _) =
-    let (typedE1, t0, s0, c') = algorithmW c e1 in
-    let (t', c'') = newVar c' in
-    let (typedE2, t1, s1, c''') = algorithmW c'' e2 in
+-- TODO do not return a new context
+algorithmW :: State -> Context -> Expr -> (TypedExpr, PolyType, Substitution, State)
+algorithmW state c (Var term _) = let maybeType = typeVar c term in case maybeType of
+    Just t -> (TypedVar term t, t, [], state)
+    Nothing -> (TypeError (UnboundVar term), polyUnknown, [], state)
+algorithmW state c (App [e1, e2] _) =
+    let (typedE1, t0, s0, state') = algorithmW state c e1 in
+    let (t', state'') = newVar state' in
+    let (typedE2, t1, s1, state''') = algorithmW state'' c e2 in
     let mguS2 = mostGeneralUnifier (toMono t0) (TFun (toMono t1) t') in
     case mguS2 of
-        Right error -> (TypeError error, polyUnknown, [], c''')
-        Left s2 -> (TypedApp [typedE1, typedE2] (toPoly t'), toPoly t', s0 ++ s1 ++ s2, c''')
-algorithmW c (App _ _) = error "we only support single application right now"
-algorithmW c (Abs name _ e) =
-    let (t, c'@(m', i')) = newVar c in
-    let newContext = (insert name (toPoly t) m', i') in
-    let (typedE, t', s, c'') = algorithmW newContext e in
+        Right error -> (TypeError error, polyUnknown, [], state''')
+        Left s2 -> (TypedApp [typedE1, typedE2] (toPoly t'), toPoly t', s0 ++ s1 ++ s2, state''')
+algorithmW state c (App _ _) = error "we only support single application right now"
+algorithmW state c (Abs name _ e) =
+    let (t, state') = newVar state in
+    let newContext = insert name (toPoly t) c in
+    let (typedE, t', s, state'') = algorithmW state' newContext e in
     let fnType = toPoly (TFun t (toMono t')) in
-    (TypedAbs name typedE fnType, fnType, s, c'')
-algorithmW c (Let name _ e0 e1) =
-    let (typedE0, t1, s0, c'@(m', i')) = algorithmW c e0 in
+    (TypedAbs name typedE fnType, fnType, s, state'')
+algorithmW state c (Let name _ e0 e1) =
+    let (typedE0, t1, s0, state') = algorithmW state c e0 in
     -- TODO use generalize instead, right now this is the same rule as Abs
     -- let gt = generalize c' (toMono t1) in
     -- let newContext = (insert name gt m', i') in
-    let newContext = (insert name t1 m', i') in
-    let (typedE1, t', s1, c'') = algorithmW newContext e1 in
-    (TypedLet name typedE0 typedE1 t', t', s0 ++ s1, c'')
-algorithmW c (LetTop term _ e) =
-    let (typedE, t, s, c') = algorithmW c e in
-    (TypedLetTop term typedE t, t, s, c')
-algorithmW c (Enclosed e _) = algorithmW c e
+    let newContext = insert name t1 c in
+    let (typedE1, t', s1, state'') = algorithmW state' newContext e1 in
+    (TypedLet name typedE0 typedE1 t', t', s0 ++ s1, state'')
+algorithmW state c (LetTop term _ e) =
+    let (typedE, t, s, state') = algorithmW state c e in
+    (TypedLetTop term typedE t, t, s, state')
+algorithmW state c (Enclosed e _) = algorithmW state c e
 -- TODO remove these
-algorithmW c NewLine = (NoExpr, polyUnknown, [], c)
-algorithmW c (ParseError m) = (TypeError UnexpectedParseError, polyUnknown, [], c)
+algorithmW state c NewLine = (NoExpr, polyUnknown, [], state)
+algorithmW state c (ParseError m) = (TypeError UnexpectedParseError, polyUnknown, [], state)
 
-typeAndAddToContext :: ([TypedExpr], Context) -> Expr -> ([TypedExpr], Context)
-typeAndAddToContext (texprs, c) e =
-    let (typedE, _, s, c'@(m, i)) = algorithmW c e in
+typeAndAddToContext :: ([TypedExpr], State, Context) -> Expr -> ([TypedExpr], State, Context)
+typeAndAddToContext (texprs, state, c) e =
+    let (typedE, t, s, state') = algorithmW state c e in
     case typedE of
-        (TypedLetTop s _ t) -> (texprs ++ [typedE], (insert s t m, i))
-        NoExpr -> (texprs ++ [NoExpr], c')
-        (TypeError UnexpectedParseError) -> (texprs ++ [NoExpr], c')
-        _ -> (texprs ++ [TypeError NoTopLevelBinding], c')
+        (TypedLetTop name _ t) ->
+            let newContext = insert name t c in
+            (texprs ++ [typedE], state', newContext)
+        NoExpr -> (texprs ++ [NoExpr], state', c)
+        (TypeError UnexpectedParseError) -> (texprs ++ [NoExpr], state', c)
+        _ -> (texprs ++ [TypeError NoTopLevelBinding], state', c)
 
+typed :: [Expr] -> [TypedExpr]
 typed exprs =
-    let context = (insert "print" (TPoly [] (TFun strType strType)) Map.empty, Data.Char.ord 'a') in
-    Data.List.foldl typeAndAddToContext ([], context) exprs
+    let initialState = (Data.Char.ord 'a', 0) in
+    let context = insert "print" (TPoly [] (TFun strType strType)) Map.empty in
+    let (typedExprs, _, _) = Data.List.foldl typeAndAddToContext ([], initialState, context) exprs in typedExprs
 
 collectTypeError :: [TypeErrorMessage] -> TypedExpr -> [TypeErrorMessage]
 collectTypeError prev n@(TypedApp exprs _) = Data.List.foldl collectTypeError prev exprs

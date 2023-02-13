@@ -18,7 +18,7 @@ checkInput input = do
     if any hasParseError ast then
         return $ collectParseErrors ast
     else
-        let (typedAst, _) = typed ast in
+        let typedAst = typed ast in
         return $ collectTypeErrors typedAst
 
 main = do
@@ -41,7 +41,7 @@ main = do
                 Nothing -> exitWith (ExitFailure 1)
                 Just toks -> do
                     let ast = parseProgram toks
-                    let (typedAst, _) = typed ast
+                    let typedAst = typed ast
                     putStrLn "Tokens:"
                     print tokens
                     putStrLn ""
