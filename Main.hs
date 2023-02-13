@@ -16,9 +16,10 @@ checkInput input = do
     tokens <- tokenize input
     let ast = parseProgram tokens
     if any hasParseError ast then
-        return $ collectParseErrors $ ast
+        return $ collectParseErrors ast
     else
-        return $ collectTypeErrors $ snd $ typed ast
+        let (typedAst, _) = typed ast in
+        return $ collectTypeErrors typedAst
 
 main = do
     args <- getArgs
@@ -40,7 +41,7 @@ main = do
                 Nothing -> exitWith (ExitFailure 1)
                 Just toks -> do
                     let ast = parseProgram toks
-                    let typedAst = snd $ typed ast
+                    let (typedAst, _) = typed ast
                     putStrLn "Tokens:"
                     print tokens
                     putStrLn ""
