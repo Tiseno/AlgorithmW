@@ -1,6 +1,2 @@
-t = λ h . print
-t = λ x . 34 23
-k = let f = λ x . 23 in λ l . f
-l = k 23
-ll = l 23
-kk = λ x . let f = λ y . x in f
+doP = let id = λ x . x in ((λ x . λ y . x) (id 23)) (id "hello")
+doP = let id = λ x . x in ((λ x . λ y . y) (id id)) (id "hello")

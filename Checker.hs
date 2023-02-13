@@ -1,13 +1,16 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Move brackets to avoid $" #-}
 {-# HLINT ignore "Use <$>" #-}
+{-# HLINT ignore "Eta reduce" #-}
 module Checker (typed, showTypedExpr, collectTypeErrors) where
 
 import Parser (Expr(..), Value(..))
-import Data.Map as Map
+import Data.Map as Map hiding (foldl)
 import qualified Data.Maybe
 import qualified Data.List
 import qualified Data.Char
+import Data.Bifunctor (first)
+import Data.Set (Set, empty, singleton, union, toList)
 
 data MonoType = TConst String | TVar String | TFun MonoType MonoType | TApp String [MonoType] | Unknown
     deriving (Show, Eq)
@@ -56,7 +59,7 @@ occursM s (TApp m ms) = any (occursM s) ms
 data TypeErrorMessage = ApplicationMismatch PolyType PolyType | ArgumentMismatch PolyType PolyType | NoTopLevelBinding | UnexpectedParseError | UnboundVar Value | InfiniteType | DifferentTypeFunctions
     deriving Show
 
-data TypedExpr = TypedVar Value PolyType | TypedApp [TypedExpr] PolyType | TypedAbs String TypedExpr PolyType | TypedLet String TypedExpr TypedExpr PolyType | TypedLetTop String TypedExpr PolyType | NoExpr | TypeError TypeErrorMessage
+data TypedExpr = TypedVar Value PolyType | TypedApp [TypedExpr] PolyType | TypedAbs String TypedExpr PolyType | TypedLet String PolyType TypedExpr TypedExpr PolyType | TypedLetTop String TypedExpr PolyType | NoExpr | TypeError TypeErrorMessage
     deriving Show
 
 showType = showTPoly
@@ -78,7 +81,7 @@ showTypedExpr (TypedVar (Bol False) t) = "false:" ++ showType t
 showTypedExpr (TypedVar (Num i) t) = show i ++ ":" ++ showType t
 showTypedExpr (TypedVar (Str s) t) = "\"" ++ s ++ "\"" ++ ":" ++ showType t
 showTypedExpr (TypedVar (Id s) t) = s ++ ":" ++ showTypeE t
-showTypedExpr (TypedLet i e1 e2 t) = "(let " ++ i ++ " : " ++ showType (typeOf e1) ++ " = " ++ showTypedExpr e1 ++ " in " ++ showTypedExpr e2 ++ "):" ++ showTypeE t
+showTypedExpr (TypedLet i p e1 e2 t) = "(let " ++ i ++ " : " ++ showType p ++ " = " ++ showTypedExpr e1 ++ " in " ++ showTypedExpr e2 ++ "):" ++ showTypeE t
 showTypedExpr (TypedLetTop i e t) = i ++ " : " ++ showType t ++ " = " ++ showTypedExpr e
 showTypedExpr NoExpr = "\n"
 showTypedExpr (TypeError e) = showTypeError e
@@ -87,7 +90,7 @@ typeOf :: TypedExpr -> PolyType
 typeOf (TypedVar _ t) = t
 typeOf (TypedApp _ t) = t
 typeOf (TypedAbs _ _ t) = t
-typeOf (TypedLet _ _ _ t) = t
+typeOf (TypedLet _ _ _ _ t) = t
 typeOf (TypedLetTop _ _ t) = t
 typeOf NoExpr = TPoly [] Unknown
 typeOf (TypeError _) = TPoly [] Unknown
@@ -97,48 +100,77 @@ type NewInst = Int
 
 type State = (NewVar, NewInst)
 
+type Context = Map String PolyType
+
+newVarName :: State -> (String, State)
+newVarName (nv, ni) = ("'" ++ [Data.Char.chr nv], (nv + 1, ni))
+
 newVar :: State -> (MonoType, State)
-newVar (nv, ni) = (TVar ("'" ++ [Data.Char.chr nv]), (nv + 1, ni))
+newVar s = first TVar $ newVarName s
+
+newInstName :: State -> (String, State)
+newInstName (nv, ni) = ("'t" ++ show ni, (nv, ni + 1))
 
 newInst :: State -> (MonoType, State)
-newInst (nv, ni) = (TVar ("'t" ++ show ni), (nv, ni + 1))
-
-type Context = Map String PolyType
+newInst s = first TVar $ newInstName s
 
 typeVar :: State -> Context -> Value -> (State, Maybe PolyType)
 typeVar state c (Bol _) = (state, Just $ TPoly [] boolType)
 typeVar state c (Num _) = (state, Just $ TPoly [] numType)
 typeVar state c (Str _) = (state, Just $ TPoly [] strType)
 typeVar state c (Id s) = let l = Map.lookup s c in case l of
-    -- TODO make context contain Either PolyType MonoType instead
+    -- TODO make context contain Either PolyType MonoType instead, this is just confusing
+    Nothing -> (state, Nothing) -- TODO This should probably return error
     Just (TPoly [] m) -> (state, l)
-    Just (TPoly (x:xs) m) ->
-        let (newType, state') = newInst state in
-        let subbedType = substituteType newType x m in
-        (state, Just (TPoly [] subbedType)) -- TODO replace all xs with newInst
-    Nothing -> (state, Nothing)
+    Just p -> let (state', mt) = inst state p in (state', Just $ TPoly [] mt)
+
+inst :: State -> PolyType -> (State, MonoType)
+inst state (TPoly quantifiers m) = let (state', subs) = Data.List.foldl createSubs (state, []) quantifiers in (state', subsMonoType m subs)
+    where
+        createSubs :: (State, [(String, String)]) -> String -> (State, [(String, String)])
+        createSubs (state, prev) s = let (new, state') = newInstName state in (state', prev ++ [(s, new)])
+
 
 type Substitution = [(String, String)]
 
--- inst :: PolyType -> MonoType
+substituteInContext :: Substitution -> Context -> Context
+substituteInContext subs c = Data.List.foldl sub1 c subs -- TODO should this be able to detect errors?
+    where
+        sub1 :: Context -> (String, String) -> Context
+        sub1 c mapping = Map.map (`subPolyType` mapping) c
 
--- TODO should probably also take Substitution instead of just String
-substituteType :: MonoType -> String -> MonoType -> MonoType
-substituteType newType name oldType@(TVar s) = if s == name then newType else oldType
-substituteType newType name oldType = oldType -- TODO replacements in TApp
+subMatchingString :: String -> (String, String) -> String
+subMatchingString current (s1, s2) = if current == s1 then s2 else current
 
-substitute :: Substitution -> Context -> Context
-substitute _ c = c -- TODO should this be able to detect errors?
+subPolyType :: PolyType -> (String, String) -> PolyType
+subPolyType (TPoly qs mt) mapping = TPoly (fmap (`subMatchingString` mapping) qs) (subMonoType mt mapping)
+
+subsMonoType :: MonoType -> [(String, String)] -> MonoType
+subsMonoType m mappings = Data.List.foldl subMonoType m mappings
+
+subMonoType :: MonoType -> (String, String) -> MonoType
+subMonoType (TVar current) mapping = TVar (subMatchingString current mapping)
+subMonoType (TFun m1 m2)   mapping = TFun (subMonoType m1 mapping) (subMonoType m2 mapping)
+subMonoType t _ = t -- TODO sub in application as well
+
+findFree :: Context -> MonoType -> Set String
+findFree c (TConst _) = Data.Set.empty
+findFree c (TVar s) = case Map.lookup s c of
+    Just _ -> Data.Set.empty
+    Nothing -> Data.Set.singleton s
+findFree c (TFun e1 e2) = findFree c e1 `Data.Set.union` findFree c e2
+findFree c (TApp _ es) = foldl (\prev e -> prev `Data.Set.union` findFree c e) Data.Set.empty es
+findFree _ Unknown = Data.Set.empty
 
 -- This is gamma bar in the let rule (Γ)
 generalize :: Context -> PolyType -> PolyType -- TODO ML should be Mono -> Poly probably?
-generalize c tm = tm -- TODO if variables in tm are free (unbound) they should be quantified here
+generalize c (TPoly xs mt) = TPoly (Data.Set.toList $ findFree c mt) mt -- TODO perform substitution as well, or return it?
 
 -- mgu
 mostGeneralUnifier :: MonoType -> MonoType -> Either Substitution TypeErrorMessage
 mostGeneralUnifier m1 m2 = Left [] -- TODO
 
--- This is a hack we should not deal with polymorphic types outside let bindings
+-- This is a hack we should not deal with polymorphic types outside let bindings and variable instantiation
 toMono (TPoly [] m) = m
 toPoly m = TPoly [] m
 
@@ -154,12 +186,12 @@ algorithmW state c (Var term _) =
 algorithmW state c (App [e1, e2] _) =
     let (typedE1, t1, s1, state') = algorithmW state c e1 in
     let (t', state'') = newVar state' in
-    let sContext = substitute s1 c in
+    let sContext = substituteInContext s1 c in
     let (typedE2, t2, s2, state''') = algorithmW state'' sContext e2 in
     let mguS3 = mostGeneralUnifier (toMono t1) (TFun (toMono t2) t') in
     case mguS3 of
         Right error -> (TypeError error, polyUnknown, [], state''')
-        -- TODO perform s3 substitute on t'
+        -- TODO perform s3 substituteInContext on t'
         Left s3 -> (TypedApp [typedE1, typedE2] (toPoly t'), toPoly t', s1 ++ s2 ++ s3, state''')
 algorithmW state c (App _ _) = error "we only support single application right now"
 algorithmW state c (Abs name _ e) =
@@ -170,11 +202,11 @@ algorithmW state c (Abs name _ e) =
     (TypedAbs name typedE fnType, fnType, s, state'')
 algorithmW state c (Let name _ e1 e2) =
     let (typedE1, t1, s1, state') = algorithmW state c e1 in
-    let sContext = substitute s1 c in
+    let sContext = substituteInContext s1 c in
     let gt = generalize sContext t1 in
     let newContext = insert name gt sContext in
     let (typedE2, t2, s2, state'') = algorithmW state' newContext e2 in
-    (TypedLet name typedE1 typedE2 t2, t2, s1 ++ s2, state'')
+    (TypedLet name gt typedE1 typedE2 t2, t2, s1 ++ s2, state'')
 algorithmW state c (LetTop term _ e) =
     let (typedE, t, s, state') = algorithmW state c e in
     (TypedLetTop term typedE t, t, s, state')
@@ -203,7 +235,7 @@ typed exprs =
 collectTypeError :: [TypeErrorMessage] -> TypedExpr -> [TypeErrorMessage]
 collectTypeError prev n@(TypedApp exprs _) = Data.List.foldl collectTypeError prev exprs
 collectTypeError prev n@(TypedAbs _ e _) = collectTypeError prev e
-collectTypeError prev n@(TypedLet _ e e2 t) = collectTypeError (collectTypeError prev e) e2
+collectTypeError prev n@(TypedLet _ _ e e2 t) = collectTypeError (collectTypeError prev e) e2
 collectTypeError prev n@(TypedLetTop _ e _) = collectTypeError prev e
 collectTypeError prev (TypeError m) = prev ++ [m]
 collectTypeError prev e = prev
