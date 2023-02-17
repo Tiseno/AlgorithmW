@@ -1,6 +1,6 @@
 import Lexer (tokenize)
 import Parser (parseProgram, prettyExpr, debugExpr, Expr, maybeParse, collectParseErrors, hasParseError)
-import Checker (typed, showTypedExpr, collectTypeErrors)
+import Checker (typed, showTypedExpr, collectTypeErrors, substituteInContextT, applySub)
 import System.Environment (getArgs)
 import Data.List (intercalate)
 import qualified Data.Set
@@ -18,7 +18,7 @@ checkInput input = do
     if any hasParseError ast then
         return $ collectParseErrors ast
     else
-        let typedAst = typed ast in
+        let (typedAst, _, _) = typed ast in
         return $ collectTypeErrors typedAst
 
 main = do
@@ -41,7 +41,7 @@ main = do
                 Nothing -> exitWith (ExitFailure 1)
                 Just toks -> do
                     let ast = parseProgram toks
-                    let typedAst = typed ast
+                    let (typedAst, s, c) = typed ast
                     putStrLn "Tokens:"
                     print tokens
                     putStrLn ""
@@ -52,9 +52,21 @@ main = do
                     putStrLn input
                     putStrLn "Parsed:"
                     putStrLn $ concatMap prettyExpr ast
-                    putStrLn "Checked:"
-                    putStrLn $ concatMap showTypedExpr typedAst
+                    -- putStrLn "Checked:"
+                    -- putStrLn $ concatMap showTypedExpr typedAst
+                    -- mapM_ putStrLn $ collectTypeErrors typedAst
+                    -- putStrLn "Context:"
+                    -- print $ c
+                    -- putStrLn "Substitutions:"
+                    -- print $ s
+                    -- putStrLn "Context (sub):"
+                    -- print $ substituteInContextT c s
+                    putStrLn ""
+                    putStrLn "Checked (sub):"
+                    putStrLn $ concatMap showTypedExpr $ applySub typedAst s
                     mapM_ putStrLn $ collectTypeErrors typedAst
+
+
     -- Default is to tokenize, parse, and check from given filename argument
     else do
         input <- readFile (head args)

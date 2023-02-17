@@ -8,3 +8,4 @@ build:
 	ghc Main.hs -o thm
 	rm *.o
 	rm *.hi
+

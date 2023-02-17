@@ -1,2 +1,0 @@
-doP = let id = λ x . x in ((λ x . λ y . x) (id 23)) (id "hello")
-doP = let id = λ x . x in ((λ x . λ y . y) (id id)) (id "hello")

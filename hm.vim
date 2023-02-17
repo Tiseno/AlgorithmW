@@ -1,6 +1,10 @@
 " Vim syntax file
 " Language:	hm
 
+if exists("b:current_syntax")
+    finish
+endif
+
 syntax keyword hmLet                let in
 syntax match   hmLet                "="
 highlight link hmLet Keyword
@@ -23,4 +27,6 @@ syntax match   hmType               "\<[A-Z][a-zA-Z]*"
 syntax match   hmType               "\'[a-z]*"
 syntax match   hmType               "_"
 highlight link hmType Type
+
+let b:current_syntax = "hm"
 
