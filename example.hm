@@ -1,0 +1,3 @@
+compose = λ f . λ g . λ x . g (f x)
+cNumToString = compose numToString
+printNum = (compose numToString) print

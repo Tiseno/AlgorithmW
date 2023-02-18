@@ -196,7 +196,9 @@ mostGeneralUnifier a@(TApp n1 a1) b@(TApp n2 a2) =
         where
             zipSub :: Either TypeSubstitution TypeErrorMessage -> (MonoType, MonoType) -> Either TypeSubstitution TypeErrorMessage
             zipSub (Right e) p = Right e
-            zipSub (Left s) (a, b) = mostGeneralUnifier (subMultipleMonoTypeT a s) (subMultipleMonoTypeT b s)
+            zipSub (Left s) (a, b) = case mostGeneralUnifier (subMultipleMonoTypeT a s) (subMultipleMonoTypeT b s) of
+                Left newSubs -> Left $ s ++ newSubs
+                e -> e
 mostGeneralUnifier a b = error ("Tried to unify " ++ showTMonoE a ++ " and " ++ showTMonoE b)
 
 -- This is a hack we should not deal with polymorphic types outside let bindings and variable instantiation
