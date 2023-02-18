@@ -4,7 +4,7 @@
 {-# HLINT ignore "Eta reduce" #-}
 module Checker (typed, showTypedExpr, collectTypeErrors, substituteInContextT, applySub, showTPoly, showTMono) where
 
-import Parser (Expr(..), Value(..))
+import Parser (Expr(..), Value(..), prettyExpr)
 import Data.Map as Map hiding (foldl)
 import qualified Data.Maybe
 import qualified Data.List
@@ -49,7 +49,7 @@ occursM s (TConst c) = s == c
 occursM s (TApp "->" [e1, e2]) = occursM s e1 || occursM s e2
 occursM s (TApp m ms) = any (occursM s) ms
 
-data TypeErrorMessage = NoTopLevelBinding | UnexpectedParseError | UnboundVar Value | MguInfiniteType MonoType MonoType | MguDifferentTypeFunctions MonoType MonoType | MguDifferentConst MonoType MonoType | MguMismatch MonoType MonoType
+data TypeErrorMessage = NoTopLevelBinding | UnexpectedParseError | UnboundVar Value | MguInfiniteType MonoType MonoType Expr | MguDifferentTypeFunctions MonoType MonoType Expr | MguMismatch MonoType MonoType Expr
     deriving Show
 
 data TypedExpr = TypedVar Value PolyType | TypedApp [TypedExpr] PolyType | TypedAbs String MonoType TypedExpr PolyType | TypedLet String PolyType TypedExpr TypedExpr PolyType | TypedLetTop String TypedExpr PolyType | NoExpr | TypeError TypeErrorMessage
@@ -61,10 +61,9 @@ showTypeE = showTPolyE
 showTypeError NoTopLevelBinding = "Compiler error: Encountered something other than a binding at the top level"
 showTypeError UnexpectedParseError = "Compiler error: Encountered parsing error in checker"
 showTypeError (UnboundVar v) = "Type error: found unbound variable " ++ show v
-showTypeError (MguInfiniteType a b) = "Type error: found infinite type in unification of " ++ showTMonoE a ++ " and " ++ showTMonoE b
-showTypeError (MguDifferentTypeFunctions a b) = "Type error: can not unify differently structured type functions " ++ showTMonoE a ++ " and " ++ showTMonoE b
-showTypeError (MguDifferentConst a b) = "Type error: can not unify different concrete types " ++ showTMonoE a ++ " and " ++ showTMonoE b
-showTypeError (MguMismatch a b) = "Type error: can not unify types " ++ showTMonoE a ++ " and " ++ showTMonoE b
+showTypeError (MguInfiniteType a b e) = "Type error: found infinite type in unification of " ++ showTMonoE a ++ " and " ++ showTMonoE b ++ " in the expression " ++ prettyExpr e
+showTypeError (MguDifferentTypeFunctions a b e) = "Type error: can not unify differently structured type functions " ++ showTMonoE a ++ " and " ++ showTMonoE b ++ " in the expression " ++ prettyExpr e
+showTypeError (MguMismatch a b e) = "Type error: can not unify " ++ showTMonoE a ++ " and " ++ showTMonoE b ++ " in the expression " ++ prettyExpr e
 
 showTypedExpr :: TypedExpr -> String
 showTypedExpr (TypedAbs s m e t) = "(λ " ++ s ++ " : " ++ showTMono m ++ " . " ++ showTypedExpr e ++ "):" ++ showTypeE t
@@ -179,27 +178,27 @@ contains (TApp _ ts) b = any (contains b) ts
 contains a b = a == b
 
 -- mgu
-mostGeneralUnifier :: MonoType -> MonoType -> Either TypeSubstitution TypeErrorMessage
-mostGeneralUnifier a@(TConst _) b@(TConst _) = if a == b then Left [] else Right $ MguDifferentConst a b
-mostGeneralUnifier a@(TVar _) b@(TConst _) = Left [(a, b)]
-mostGeneralUnifier a@(TConst _) b@(TVar _) = Left [(b, a)]
-mostGeneralUnifier a@(TApp _ _) b@(TConst _) = Right $ MguMismatch a b
-mostGeneralUnifier a@(TConst _) b@(TApp _ _) = Right $ MguMismatch a b
-mostGeneralUnifier a@(TVar _) b
+mostGeneralUnifier :: MonoType -> MonoType -> Expr -> Either TypeSubstitution TypeErrorMessage
+mostGeneralUnifier a@(TConst _) b@(TConst _) e = if a == b then Left [] else Right $ MguMismatch a b e
+mostGeneralUnifier a@(TVar _) b@(TConst _) e = Left [(a, b)]
+mostGeneralUnifier a@(TConst _) b@(TVar _) e = Left [(b, a)]
+mostGeneralUnifier a@(TConst _) b@(TApp _ _) e = Right $ MguMismatch a b e
+mostGeneralUnifier a@(TApp _ _) b@(TConst _) e = Right $ MguMismatch b a e
+mostGeneralUnifier a@(TVar _) b e
     | a == b = Left []
-    | b `contains` a = Right (MguInfiniteType a b)
+    | b `contains` a = Right (MguInfiniteType a b e)
     | otherwise = Left [(a, b)]
-mostGeneralUnifier a b@(TVar _) = mostGeneralUnifier b a
-mostGeneralUnifier a@(TApp n1 a1) b@(TApp n2 a2) =
-    if n1 /= n2 || length a1 /= length a2 then Right (MguDifferentTypeFunctions a b) else
+mostGeneralUnifier a b@(TVar _) e = mostGeneralUnifier b a e
+mostGeneralUnifier a@(TApp n1 a1) b@(TApp n2 a2) e =
+    if n1 /= n2 || length a1 /= length a2 then Right (MguDifferentTypeFunctions a b e) else
     Data.List.foldl zipSub (Left []) (zip a1 a2)
         where
             zipSub :: Either TypeSubstitution TypeErrorMessage -> (MonoType, MonoType) -> Either TypeSubstitution TypeErrorMessage
             zipSub (Right e) p = Right e
-            zipSub (Left s) (a, b) = case mostGeneralUnifier (subMultipleMonoTypeT a s) (subMultipleMonoTypeT b s) of
+            zipSub (Left s) (a, b) = case mostGeneralUnifier (subMultipleMonoTypeT a s) (subMultipleMonoTypeT b s) e of
                 Left newSubs -> Left $ s ++ newSubs
                 e -> e
-mostGeneralUnifier a b = error ("Tried to unify " ++ showTMonoE a ++ " and " ++ showTMonoE b)
+mostGeneralUnifier a b e = error ("Tried to unify " ++ showTMonoE a ++ " and " ++ showTMonoE b)
 
 -- This is a hack we should not deal with polymorphic types outside let bindings and variable instantiation
 toMono (TPoly [] m) = m
@@ -214,17 +213,25 @@ algorithmW state c (Var term _) =
     case maybeType of
         Just t -> (TypedVar term t, t, [], state')
         Nothing -> (TypeError (UnboundVar term), polyUnknown, [], state')
-algorithmW state c (App [e1, e2] _) =
-    let (typedE1, t1, s1, state') = algorithmW state c e1 in
-    let (t', state'') = newVar state' in
-    let sContext = substituteInContextT c s1 in
-    let (typedE2, t2, s2, state''') = algorithmW state'' sContext e2 in
-    let mguS3 = mostGeneralUnifier (toMono t1) (TApp "->" [toMono t2, t']) in
-    case mguS3 of
-        Right error -> (TypeError error, polyUnknown, [], state''')
-        -- TODO perform s3 substituteInContext on t'
-        Left s3 -> let subbedT' = subMultipleMonoTypeT t' s3 in (TypedApp [typedE1, typedE2] (toPoly subbedT'), toPoly subbedT', s1 ++ s2 ++ s3, state''')
-algorithmW state c (App _ _) = error "we only support single application right now"
+algorithmW state c pe@(App [e1, e2]) =
+    let (typedE1, t1, s1, state') = algorithmW state c e1 in case typedE1 of
+        TypeError _ -> (typedE1, t1, s1, state')
+        _ ->
+            let (t', state'') = newVar state' in
+            let sContext = substituteInContextT c s1 in
+            let (typedE2, t2, s2, state''') = algorithmW state'' sContext e2 in case typedE2 of
+                TypeError _ -> (typedE2, t2, s1 ++ s2, state''')
+                _ ->
+                    let mguS3 = (mostGeneralUnifier (toMono t1) ((TApp "->" [toMono t2, t'])) (pe)) in -- TODO should we sub on t1 here?
+                    case mguS3 of
+                        Right error -> (TypeError error, polyUnknown, [], state''')
+                        Left s3 -> let subbedT' = subMultipleMonoTypeT t' s3 in (TypedApp [typedE1, typedE2] (toPoly subbedT'), toPoly subbedT', s1 ++ s2 ++ s3, state''')
+algorithmW state c (App exprs) = algorithmW state c (unfold exprs)
+    where
+        unfold [] = error "Application with no expression is malformed"
+        unfold [e1] = e1
+        unfold [e1, e2] = App [e1, e2]
+        unfold exprs = App [unfold (init exprs), last exprs]
 algorithmW state c (Abs name _ e) =
     let (t, state') = newVar state in
     let newContext = insert name (toPoly t) c in
@@ -262,13 +269,18 @@ typeAndAddToContext (texprs, state, s1, c) e =
         (TypeError UnexpectedParseError) -> (texprs ++ [NoExpr], state', s1, c)
         _ -> (texprs ++ [TypeError NoTopLevelBinding], state', s1, c)
 
+builtinFunctions =
+    [ ("print",       TPoly [] (TApp "->" [strType, strType]))
+    , ("numToString", TPoly [] (TApp "->" [numType, strType]))
+    , ("toString",    TPoly ["a"] (TApp "->" [TVar "a", strType]))
+    , ("add",         TPoly [] (TApp "->" [numType, TApp "->" [numType, numType]]))
+    ]
+
 typed :: [Expr] -> ([TypedExpr], TypeSubstitution, Context)
 typed exprs =
     let initialState = (Data.Char.ord 'a', 0) in
-    let context = insert "print" (TPoly [] (TApp "->" [strType, strType])) Map.empty in
-    let context' = insert "numToString" (TPoly [] (TApp "->" [numType, strType])) context in
-    let context'' = insert "toString" (TPoly ["a"] (TApp "->" [TVar "a", strType])) context' in
-    let (typedExprs, _, s, c) = Data.List.foldl typeAndAddToContext ([], initialState, [], context'') exprs in
+    let context = Map.fromList builtinFunctions in
+    let (typedExprs, _, s, c) = Data.List.foldl typeAndAddToContext ([], initialState, [], context) exprs in
     (typedExprs, s, c)
 
 applySub :: [TypedExpr] -> TypeSubstitution -> [TypedExpr]

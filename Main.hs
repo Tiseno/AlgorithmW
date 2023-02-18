@@ -55,18 +55,13 @@ main = do
                     putStrLn input
                     putStrLn "Parsed and formatted:"
                     putStrLn $ concatMap prettyExpr ast
-                    putStrLn "Checked:"
-                    putStrLn $ concatMap showTypedExpr typedAst
-                    putStrLn "Context:"
-                    mapM_ putStrLn $ fmap (\(name, p) -> name ++ " = " ++ showTPoly p) $ assocs c
-                    putStrLn ""
-                    mapM_ putStrLn $ fmap (\(t1, t2) -> showTMono t1 ++ " →  " ++ showTMono t2) s
                     putStrLn "Substitutions:"
+                    mapM_ putStrLn $ fmap (\(t1, t2) -> showTMono t1 ++ " →  " ++ showTMono t2) s
                     putStrLn ""
-                    putStrLn "Context (sub):"
+                    putStrLn "Context:"
                     mapM_ putStrLn $ fmap (\(name, p) -> name ++ " = " ++ showTPoly p) $ assocs $ substituteInContextT c s
                     putStrLn ""
-                    putStrLn "Checked (sub):"
+                    putStrLn "Checked:"
                     putStrLn $ concatMap showTypedExpr $ applySub typedAst s
                     mapM_ putStrLn $ collectTypeErrors typedAst
 

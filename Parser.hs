@@ -21,7 +21,7 @@ data Value = Bol Bool | Num Int | Str String | Id String
 
 type OfType = Maybe String
 
-data Expr = Var Value OfType | App [Expr] OfType | Abs String OfType Expr | Let String OfType Expr Expr | LetTop String OfType Expr | Enclosed Expr OfType | NewLine | ParseError ParseErrorMessage | EOF
+data Expr = Var Value OfType | App [Expr] | Abs String OfType Expr | Let String OfType Expr Expr | LetTop String OfType Expr | Enclosed Expr OfType | NewLine | ParseError ParseErrorMessage | EOF
     deriving Show
 
 debugShowType (Just t) = " : " ++ t
@@ -32,7 +32,7 @@ debugExpr (Var (Bol b) t) = "Bool [" ++ show b ++ debugShowType t ++ "]"
 debugExpr (Var (Num i) t) = "Num [" ++ show i ++ debugShowType t ++ "]"
 debugExpr (Var (Str s) t) = "Str [\"" ++ s ++ "\"" ++ debugShowType t ++ "]"
 debugExpr (Var (Id s) t) = "Id [" ++ s ++ debugShowType t ++ "]"
-debugExpr (App exprs t) = "App [(" ++ (unwords $ fmap debugExpr exprs) ++ ")" ++ debugShowType t ++ "]"
+debugExpr (App exprs) = "App [" ++ (unwords $ fmap debugExpr exprs) ++ "]"
 debugExpr (Abs s t e) = "Abs [" ++ s ++ debugShowType t ++ ", " ++ debugExpr e ++ "]"
 debugExpr (LetTop i t e) = "LetTop [" ++ i ++ debugShowType t ++ "]" ++ " = [" ++ debugExpr e ++ "]"
 debugExpr (Let i t e1 e2) = "Let [" ++ i ++ debugShowType t ++ "]" ++ " = [" ++ debugExpr e1 ++ "] in [" ++ debugExpr e2 ++ "]"
@@ -45,7 +45,7 @@ prettyShowType _ = ""
 
 prettyExpr :: Expr -> String
 prettyExpr (Abs s t e) = "λ " ++ s ++ prettyShowType t ++ " . " ++ prettyExpr e
-prettyExpr (App exprs _) = unwords $ fmap prettyExpr exprs
+prettyExpr (App exprs) = unwords $ fmap prettyExpr exprs
 prettyExpr (Var (Bol True) t) = "true" ++ prettyShowType t
 prettyExpr (Var (Bol False) t) = "false" ++ prettyShowType t
 prettyExpr (Var (Num i) t) = show i ++ prettyShowType t
@@ -83,7 +83,7 @@ parseExpr1' prev tokens = let (rest, result) = parseSingleExpr tokens in case re
 
 parseExpr1 (TNewLine : xs) = parseExpr1 xs
 parseExpr1 tokens = let (tokens', exprs) = parseExpr1' [] tokens in
-    if length exprs == 1 then (tokens', head exprs) else (tokens', App exprs Nothing)
+    if length exprs == 1 then (tokens', head exprs) else (tokens', App exprs)
 
 parseAssign (TNewLine : xs) = (xs, NewLine)
 parseAssign ((TIdentifier i) : xs) = case xs of
@@ -104,7 +104,7 @@ parseProgram tokens = snd $ parseProgram' [] tokens
 
 hasParseError :: Expr -> Bool
 hasParseError (ParseError _) = True
-hasParseError (App exprs _) = any hasParseError exprs
+hasParseError (App exprs) = any hasParseError exprs
 hasParseError (Abs _ _ e) = hasParseError e
 hasParseError (LetTop _ _ e) = hasParseError e
 hasParseError (Let _ _ e1 e2) = hasParseError e1 || hasParseError e2
@@ -115,7 +115,7 @@ maybeParse tokens = let parsed = parseProgram tokens in
     if any hasParseError parsed then Nothing else Just parsed
 
 collectParseError :: [ParseErrorMessage] -> Expr -> [ParseErrorMessage]
-collectParseError prev n@(App exprs _) = Data.List.foldl collectParseError prev exprs
+collectParseError prev n@(App exprs) = Data.List.foldl collectParseError prev exprs
 collectParseError prev n@(Abs _ _ e) = collectParseError prev e
 collectParseError prev n@(Let _ _ e e2) = collectParseError (collectParseError prev e) e2
 collectParseError prev n@(LetTop _ _ e) = collectParseError prev e

@@ -1,13 +1,13 @@
 # THM
 Down the rabbit hole that is lambda calculus.
 
-An attempt to implement some sort of type checking based on hindley milner.
+An attempt at implementing polymorphic type checking with Algorithm W.
 
 ```
 make build
 ./thm examples/unification-error.hm
 
-Type error: can not unify types Str and (('t3 -> 't3) -> 'n)
+Type error: can not unify Str and (('t3 -> 't3) -> 'p) in the expression "hello" id
 ```
 
 ### Resources
