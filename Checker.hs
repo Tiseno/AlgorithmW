@@ -208,7 +208,7 @@ toPoly m = TPoly [] m
 -- TODO algorithmW should only produce mono types and only the let rule should produce one polytype internally
 -- TODO Change Context to String -> Either PolyType MonoType and abolish toPoly and toMono
 algorithmW :: State -> Context -> Expr -> (TypedExpr, PolyType, TypeSubstitution, State)
-algorithmW state c (Var term _) =
+algorithmW state c (Var term) =
     let (state', maybeType) = typeVar state c term in
     case maybeType of
         Just t -> (TypedVar term t, t, [], state')
@@ -232,24 +232,24 @@ algorithmW state c (App exprs) = algorithmW state c (unfold exprs)
         unfold [e1] = e1
         unfold [e1, e2] = App [e1, e2]
         unfold exprs = App [unfold (init exprs), last exprs]
-algorithmW state c (Abs name _ e) =
+algorithmW state c (Abs name e) =
     let (t, state') = newVar state in
     let newContext = insert name (toPoly t) c in
     let (typedE, t', s, state'') = algorithmW state' newContext e in
     let fnType = toPoly (TApp "->" [t, toMono t']) in
     (TypedAbs name t typedE fnType, fnType, s, state'')
-algorithmW state c (Let name _ e1 e2) =
+algorithmW state c (Let name e1 e2) =
     let (typedE1, t1, s1, state') = algorithmW state c e1 in
     let sContext = substituteInContextT c s1 in
     let (gt, state'') = generalize state' sContext (subMultipleMonoTypeT (toMono t1) s1) in
     let newSContext = insert name gt sContext in
     let (typedE2, t2, s2, state''') = algorithmW state'' newSContext e2 in
     (TypedLet name gt typedE1 typedE2 t2, t2, s1 ++ s2, state''')
-algorithmW state c (LetTop term _ e) =
+algorithmW state c (LetTop term e) =
     -- TODO treat this as a normal let, i.e. rewrite program as a series of lets instead
     let (typedE, t, s, state') = algorithmW state c e in
     (TypedLetTop term typedE t, t, s, state')
-algorithmW state c (Enclosed e _) = algorithmW state c e
+algorithmW state c (Enclosed e) = algorithmW state c e
 -- TODO remove these
 algorithmW state c NewLine = (NoExpr, polyUnknown, [], state)
 algorithmW state c (ParseError m) = (TypeError UnexpectedParseError, polyUnknown, [], state)

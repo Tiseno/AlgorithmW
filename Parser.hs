@@ -19,24 +19,19 @@ showParseError (UnexpectedToken t) = "Parse error: unexpected token " ++ show t
 data Value = Bol Bool | Num Int | Str String | Id String
     deriving Show
 
-type OfType = Maybe String
-
-data Expr = Var Value OfType | App [Expr] | Abs String OfType Expr | Let String OfType Expr Expr | LetTop String OfType Expr | Enclosed Expr OfType | NewLine | ParseError ParseErrorMessage | EOF
+data Expr = Var Value | App [Expr] | Abs String Expr | Let String Expr Expr | LetTop String Expr | Enclosed Expr | NewLine | ParseError ParseErrorMessage | EOF
     deriving Show
 
-debugShowType (Just t) = " : " ++ t
-debugShowType _ = " : _"
-
 debugExpr :: Expr -> String
-debugExpr (Var (Bol b) t) = "Bool [" ++ show b ++ debugShowType t ++ "]"
-debugExpr (Var (Num i) t) = "Num [" ++ show i ++ debugShowType t ++ "]"
-debugExpr (Var (Str s) t) = "Str [\"" ++ s ++ "\"" ++ debugShowType t ++ "]"
-debugExpr (Var (Id s) t) = "Id [" ++ s ++ debugShowType t ++ "]"
+debugExpr (Var (Bol b)) = "Bool [" ++ show b ++ "]"
+debugExpr (Var (Num i)) = "Num [" ++ show i ++ "]"
+debugExpr (Var (Str s)) = "Str [\"" ++ s ++ "\"]"
+debugExpr (Var (Id s)) = "Id [" ++ s ++ "]"
 debugExpr (App exprs) = "App [" ++ (unwords $ fmap debugExpr exprs) ++ "]"
-debugExpr (Abs s t e) = "Abs [" ++ s ++ debugShowType t ++ ", " ++ debugExpr e ++ "]"
-debugExpr (LetTop i t e) = "LetTop [" ++ i ++ debugShowType t ++ "]" ++ " = [" ++ debugExpr e ++ "]"
-debugExpr (Let i t e1 e2) = "Let [" ++ i ++ debugShowType t ++ "]" ++ " = [" ++ debugExpr e1 ++ "] in [" ++ debugExpr e2 ++ "]"
-debugExpr (Enclosed e t) = "Enclose [(" ++ debugExpr e ++ ")" ++ debugShowType t ++ "]"
+debugExpr (Abs s e) = "Abs [" ++ s ++ ", " ++ debugExpr e ++ "]"
+debugExpr (LetTop i e) = "LetTop [" ++ i ++ "]" ++ " = [" ++ debugExpr e ++ "]"
+debugExpr (Let i e1 e2) = "Let [" ++ i ++ "]" ++ " = [" ++ debugExpr e1 ++ "] in [" ++ debugExpr e2 ++ "]"
+debugExpr (Enclosed e) = "Enclose [(" ++ debugExpr e ++ ")" ++ "]"
 debugExpr NewLine = "\n"
 debugExpr (ParseError m) = "ERROR: " ++ show m
 
@@ -44,36 +39,36 @@ prettyShowType (Just t) = " : " ++ t
 prettyShowType _ = ""
 
 prettyExpr :: Expr -> String
-prettyExpr (Abs s t e) = "λ " ++ s ++ prettyShowType t ++ " . " ++ prettyExpr e
+prettyExpr (Abs s e) = "λ " ++ s ++ " . " ++ prettyExpr e
 prettyExpr (App exprs) = unwords $ fmap prettyExpr exprs
-prettyExpr (Var (Bol True) t) = "true" ++ prettyShowType t
-prettyExpr (Var (Bol False) t) = "false" ++ prettyShowType t
-prettyExpr (Var (Num i) t) = show i ++ prettyShowType t
-prettyExpr (Var (Str s) t) = "\"" ++ s ++ "\"" ++ prettyShowType t
-prettyExpr (Var (Id s) t) = s ++ prettyShowType t
-prettyExpr (Enclosed e t) = "(" ++ prettyExpr e ++ ")" ++ prettyShowType t
-prettyExpr (LetTop i t e) = i ++ prettyShowType t ++ " = " ++ prettyExpr e
-prettyExpr (Let i t e1 e2) = "let " ++ i ++ prettyShowType t ++ " = " ++ prettyExpr e1 ++ " in " ++ prettyExpr e2
+prettyExpr (Var (Bol True)) = "true"
+prettyExpr (Var (Bol False)) = "false"
+prettyExpr (Var (Num i)) = show i
+prettyExpr (Var (Str s)) = "\"" ++ s ++ "\""
+prettyExpr (Var (Id s)) = s
+prettyExpr (Enclosed e) = "(" ++ prettyExpr e ++ ")"
+prettyExpr (LetTop i e) = i ++ " = " ++ prettyExpr e
+prettyExpr (Let i e1 e2) = "let " ++ i ++ " = " ++ prettyExpr e1 ++ " in " ++ prettyExpr e2
 prettyExpr NewLine = "\n"
 prettyExpr (ParseError m) = "ERROR: " ++ show m
 
 parseSingleExpr :: [Token] -> ([Token], Expr)
 parseSingleExpr tokens@(TLambda : xs) = case xs of
-    (TIdentifier i) : TAbstraction : xs' -> let (rest, expr) = parseExpr1 xs' in (rest, Abs i Nothing expr)
+    (TIdentifier i) : TAbstraction : xs' -> let (rest, expr) = parseExpr1 xs' in (rest, Abs i expr)
     _ -> (tokens, ParseError MalformedAbstration)
 parseSingleExpr tokens@(TLParen : xs) =
     let (rest, result) = parseExpr1 xs in case rest of
-    TRParen : xs -> (xs, Enclosed result Nothing)
+    TRParen : xs -> (xs, Enclosed result)
     _ -> (tokens, ParseError UnclosedParenthesis)
 parseSingleExpr tokens@(TLet : xs) = case xs of
     (TIdentifier i) : TAssign : xs' -> let (rest, expr) = parseExpr1 xs' in case rest of
-        (TIn : xs'') -> let (rest', expr2) = parseExpr1 xs'' in (rest', Let i Nothing expr expr2)
+        (TIn : xs'') -> let (rest', expr2) = parseExpr1 xs'' in (rest', Let i expr expr2)
         _ -> (tokens, ParseError MalformedLetBinding)
     _ -> (tokens, ParseError MalformedLetBinding)
-parseSingleExpr ((TIdentifier i) : xs) = (xs, Var (Id i) Nothing)
-parseSingleExpr ((TNumberLiteral n) : xs) = (xs, Var (Num n) Nothing)
-parseSingleExpr ((TStringLiteral s) : xs) = (xs, Var (Str s) Nothing)
-parseSingleExpr ((TBoolLiteral b) : xs) = (xs, Var (Bol b) Nothing)
+parseSingleExpr ((TIdentifier i) : xs) = (xs, Var (Id i))
+parseSingleExpr ((TNumberLiteral n) : xs) = (xs, Var (Num n))
+parseSingleExpr ((TStringLiteral s) : xs) = (xs, Var (Str s))
+parseSingleExpr ((TBoolLiteral b) : xs) = (xs, Var (Bol b))
 parseSingleExpr tokens = (tokens, ParseError EndOfInput)
 
 parseExpr1' :: [Expr] -> [Token] -> ([Token], [Expr])
@@ -87,7 +82,7 @@ parseExpr1 tokens = let (tokens', exprs) = parseExpr1' [] tokens in
 
 parseAssign (TNewLine : xs) = (xs, NewLine)
 parseAssign ((TIdentifier i) : xs) = case xs of
-    (TAssign : xs') -> let (rest, result) = parseExpr1 xs' in (rest, LetTop i Nothing result)
+    (TAssign : xs') -> let (rest, result) = parseExpr1 xs' in (rest, LetTop i result)
     _ -> (xs, ParseError ExpectedAssignment)
 parseAssign tokens@(x:xs) = (tokens, ParseError (UnexpectedToken x))
 parseAssign [] = ([], EOF)
@@ -105,10 +100,10 @@ parseProgram tokens = snd $ parseProgram' [] tokens
 hasParseError :: Expr -> Bool
 hasParseError (ParseError _) = True
 hasParseError (App exprs) = any hasParseError exprs
-hasParseError (Abs _ _ e) = hasParseError e
-hasParseError (LetTop _ _ e) = hasParseError e
-hasParseError (Let _ _ e1 e2) = hasParseError e1 || hasParseError e2
-hasParseError (Enclosed e _) = hasParseError e
+hasParseError (Abs _ e) = hasParseError e
+hasParseError (LetTop _ e) = hasParseError e
+hasParseError (Let _ e1 e2) = hasParseError e1 || hasParseError e2
+hasParseError (Enclosed e) = hasParseError e
 hasParseError _ = False
 
 maybeParse tokens = let parsed = parseProgram tokens in
@@ -116,9 +111,9 @@ maybeParse tokens = let parsed = parseProgram tokens in
 
 collectParseError :: [ParseErrorMessage] -> Expr -> [ParseErrorMessage]
 collectParseError prev n@(App exprs) = Data.List.foldl collectParseError prev exprs
-collectParseError prev n@(Abs _ _ e) = collectParseError prev e
-collectParseError prev n@(Let _ _ e e2) = collectParseError (collectParseError prev e) e2
-collectParseError prev n@(LetTop _ _ e) = collectParseError prev e
+collectParseError prev n@(Abs _ e) = collectParseError prev e
+collectParseError prev n@(Let _ e e2) = collectParseError (collectParseError prev e) e2
+collectParseError prev n@(LetTop _ e) = collectParseError prev e
 collectParseError prev (ParseError m) = prev ++ [m]
 collectParseError prev e = prev
 
