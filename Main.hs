@@ -1,10 +1,13 @@
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use <$>" #-}
 import Lexer (tokenize)
 import Parser (parseProgram, prettyExpr, debugExpr, Expr, maybeParse, collectParseErrors, hasParseError)
-import Checker (typed, showTypedExpr, collectTypeErrors, substituteInContextT, applySub)
+import Checker (typed, showTypedExpr, collectTypeErrors, substituteInContextT, applySub, showTPoly, showTMono)
 import System.Environment (getArgs)
 import Data.List (intercalate)
 import qualified Data.Set
 import System.Exit (exitWith, ExitCode (ExitFailure))
+import Data.Map (assocs)
 
 parseInput :: String -> Maybe [Expr]
 parseInput input = do
@@ -42,25 +45,26 @@ main = do
                 Just toks -> do
                     let ast = parseProgram toks
                     let (typedAst, s, c) = typed ast
-                    putStrLn "Tokens:"
-                    print tokens
-                    putStrLn ""
-                    putStrLn "Ast:"
-                    print ast
-                    putStrLn ""
+                    -- putStrLn "Tokens:"
+                    -- print tokens
+                    -- putStrLn ""
+                    -- putStrLn "Ast:"
+                    -- print ast
+                    -- putStrLn ""
                     putStrLn "File:"
                     putStrLn input
-                    putStrLn "Parsed:"
+                    putStrLn "Parsed and formatted:"
                     putStrLn $ concatMap prettyExpr ast
-                    -- putStrLn "Checked:"
-                    -- putStrLn $ concatMap showTypedExpr typedAst
-                    -- mapM_ putStrLn $ collectTypeErrors typedAst
-                    -- putStrLn "Context:"
-                    -- print $ c
-                    -- putStrLn "Substitutions:"
-                    -- print $ s
-                    -- putStrLn "Context (sub):"
-                    -- print $ substituteInContextT c s
+                    putStrLn "Checked:"
+                    putStrLn $ concatMap showTypedExpr typedAst
+                    putStrLn "Context:"
+                    mapM_ putStrLn $ fmap (\(name, p) -> name ++ " = " ++ showTPoly p) $ assocs c
+                    putStrLn ""
+                    mapM_ putStrLn $ fmap (\(t1, t2) -> showTMono t1 ++ " →  " ++ showTMono t2) s
+                    putStrLn "Substitutions:"
+                    putStrLn ""
+                    putStrLn "Context (sub):"
+                    mapM_ putStrLn $ fmap (\(name, p) -> name ++ " = " ++ showTPoly p) $ assocs $ substituteInContextT c s
                     putStrLn ""
                     putStrLn "Checked (sub):"
                     putStrLn $ concatMap showTypedExpr $ applySub typedAst s

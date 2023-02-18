@@ -2,7 +2,7 @@
 {-# HLINT ignore "Move brackets to avoid $" #-}
 {-# HLINT ignore "Use <$>" #-}
 {-# HLINT ignore "Eta reduce" #-}
-module Checker (typed, showTypedExpr, collectTypeErrors, substituteInContextT, applySub) where
+module Checker (typed, showTypedExpr, collectTypeErrors, substituteInContextT, applySub, showTPoly, showTMono) where
 
 import Parser (Expr(..), Value(..))
 import Data.Map as Map hiding (foldl)
@@ -167,8 +167,12 @@ findFree c (TApp _ es) = foldl (\prev e -> prev `Data.Set.union` findFree c e) D
 findFree _ Unknown = Data.Set.empty
 
 -- This is gamma bar in the let rule (Γ)
-generalize :: Context -> MonoType -> PolyType
-generalize c mt = TPoly (Data.Set.toList $ findFree c mt) mt -- TODO perform substitution as well, or return it?
+generalize :: State -> Context -> MonoType -> (PolyType, State)
+generalize state c mt =
+    let freeVariables = Data.Set.toList $ findFree c mt in
+    let (state', substitutions) = Data.List.foldl (\(state, subs) free -> let (nmt, state') = newVar state in (state', subs ++ [(TVar free, nmt)])) (state, []) freeVariables in
+    let newNames = fmap (\(_, TVar name) -> name) substitutions in
+    (TPoly newNames (subMultipleMonoTypeT mt substitutions), state')
 
 contains :: MonoType -> MonoType -> Bool
 contains (TApp _ ts) b = any (contains b) ts
@@ -228,10 +232,10 @@ algorithmW state c (Abs name _ e) =
 algorithmW state c (Let name _ e1 e2) =
     let (typedE1, t1, s1, state') = algorithmW state c e1 in
     let sContext = substituteInContextT c s1 in
-    let gt = generalize sContext (subMultipleMonoTypeT (toMono t1) s1) in
+    let (gt, state'') = generalize state' sContext (subMultipleMonoTypeT (toMono t1) s1) in
     let newSContext = insert name gt sContext in
-    let (typedE2, t2, s2, state'') = algorithmW state' newSContext e2 in
-    (TypedLet name gt typedE1 typedE2 t2, t2, s1 ++ s2, state'')
+    let (typedE2, t2, s2, state''') = algorithmW state'' newSContext e2 in
+    (TypedLet name gt typedE1 typedE2 t2, t2, s1 ++ s2, state''')
 algorithmW state c (LetTop term _ e) =
     -- TODO treat this as a normal let, i.e. rewrite program as a series of lets instead
     let (typedE, t, s, state') = algorithmW state c e in
@@ -244,11 +248,14 @@ algorithmW state c (ParseError m) = (TypeError UnexpectedParseError, polyUnknown
 -- This needs to pass along substitutions as well
 typeAndAddToContext :: ([TypedExpr], State, TypeSubstitution, Context) -> Expr -> ([TypedExpr], State, TypeSubstitution, Context)
 typeAndAddToContext (texprs, state, s1, c) e =
-    let (typedE, t, s2, state') = algorithmW state (substituteInContextT c s1) e in
+    let sContext = substituteInContextT c s1 in
+    let (typedE, t, s2, state') = algorithmW state sContext e in
     case typedE of
         (TypedLetTop name _ t) ->
-            let newContext = insert name t c in
-            (texprs ++ [typedE], state', s1 ++ s2, newContext)
+            let sContext' = substituteInContextT sContext s2 in
+            let (gt, state'') = generalize state' sContext' (subMultipleMonoTypeT (toMono t) s2) in
+            let newContext = insert name gt sContext' in
+            (texprs ++ [typedE], state'', s1 ++ s2, newContext)
         NoExpr -> (texprs ++ [NoExpr], state', s1 ++ s2, c)
         (TypeError UnexpectedParseError) -> (texprs ++ [NoExpr], state', s1, c)
         _ -> (texprs ++ [TypeError NoTopLevelBinding], state', s1, c)
@@ -257,10 +264,10 @@ typed :: [Expr] -> ([TypedExpr], TypeSubstitution, Context)
 typed exprs =
     let initialState = (Data.Char.ord 'a', 0) in
     let context = insert "print" (TPoly [] (TApp "->" [strType, strType])) Map.empty in
-    let (typedExprs, _, s, c) = Data.List.foldl typeAndAddToContext ([], initialState, [], context) exprs in
+    let context' = insert "numToString" (TPoly [] (TApp "->" [numType, strType])) context in
+    let context'' = insert "toString" (TPoly ["a"] (TApp "->" [TVar "a", strType])) context' in
+    let (typedExprs, _, s, c) = Data.List.foldl typeAndAddToContext ([], initialState, [], context'') exprs in
     (typedExprs, s, c)
-    -- (fmap (`applySubstitutionToTypedExpr` s) typedExprs, s, c)
-
 
 applySub :: [TypedExpr] -> TypeSubstitution -> [TypedExpr]
 applySub exprs s = fmap (`applySubstitutionToTypedExpr` s) exprs
