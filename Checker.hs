@@ -222,7 +222,7 @@ algorithmW state c pe@(App [e1, e2]) =
             let (typedE2, t2, s2, state''') = algorithmW state'' sContext e2 in case typedE2 of
                 TypeError _ -> (typedE2, t2, s1 ++ s2, state''')
                 _ ->
-                    let mguS3 = (mostGeneralUnifier (toMono t1) ((TApp "->" [toMono t2, t'])) (pe)) in -- TODO should we sub on t1 here?
+                    let mguS3 = mostGeneralUnifier (toMono t1) (TApp "->" [toMono t2, t']) pe in
                     case mguS3 of
                         Right error -> (TypeError error, polyUnknown, [], state''')
                         Left s3 -> let subbedT' = subMultipleMonoTypeT t' s3 in (TypedApp [typedE1, typedE2] (toPoly subbedT'), toPoly subbedT', s1 ++ s2 ++ s3, state''')
@@ -254,7 +254,6 @@ algorithmW state c (Enclosed e) = algorithmW state c e
 algorithmW state c NewLine = (NoExpr, polyUnknown, [], state)
 algorithmW state c (ParseError m) = (TypeError UnexpectedParseError, polyUnknown, [], state)
 
--- This needs to pass along substitutions as well
 typeAndAddToContext :: ([TypedExpr], State, TypeSubstitution, Context) -> Expr -> ([TypedExpr], State, TypeSubstitution, Context)
 typeAndAddToContext (texprs, state, s1, c) e =
     let sContext = substituteInContextT c s1 in
@@ -274,6 +273,9 @@ builtinFunctions =
     , ("numToString", TPoly [] (TApp "->" [numType, strType]))
     , ("toString",    TPoly ["a"] (TApp "->" [TVar "a", strType]))
     , ("add",         TPoly [] (TApp "->" [numType, TApp "->" [numType, numType]]))
+    , ("emptyMap",    TPoly ["k", "v"] (TApp "Map" [TVar "k", TVar "v"]))
+    , ("nsert",      TPoly ["k", "v"] (TApp "->" [TVar "k", TApp "->" [TVar "v", TApp "->" [TApp "Map" [TVar "k", TVar "v"], TApp "Map" [TVar "k", TVar "v"]]]]))
+    , ("lookup",      TPoly ["k", "v"] (TApp "->" [TVar "k", TApp "->" [TApp "Map" [TVar "k", TVar "v"], TVar "v"]]))
     ]
 
 typed :: [Expr] -> ([TypedExpr], TypeSubstitution, Context)

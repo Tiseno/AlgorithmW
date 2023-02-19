@@ -1,3 +1,4 @@
-compose = λ f . λ g . λ x . g (f x)
-printNum = compose numToString print
-main = printNum (add 5000 40)
+a = nsert "hello" 56 emptyMap
+nsertTwo = λ k . λ l . λ v . λ map . nsert l v (nsert k v map)
+b = nsertTwo "s" "b" 5555 a
+c = nsertTwo 1 2 "hello" emptyMap
