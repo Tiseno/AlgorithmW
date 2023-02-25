@@ -94,7 +94,13 @@ type State = (NewVar, NewInst)
 type Context = Map String PolyType
 
 newVarName :: State -> (String, State)
-newVarName (nv, ni) = ("'" ++ [Data.Char.chr nv], (nv + 1, ni))
+newVarName (nv, ni) = ("'" ++ name, (nv + 1, ni))
+    where
+        offset = 97
+        domain = 25
+        i = (nv - offset) `mod` domain
+        n = (nv - offset) `div` domain
+        name = Data.Char.chr (offset + i) : if n == 0 then "" else show (n + 1)
 
 newVar :: State -> (MonoType, State)
 newVar s = first TVar $ newVarName s
