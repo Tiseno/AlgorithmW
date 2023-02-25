@@ -2,7 +2,7 @@
 {-# HLINT ignore "Use <$>" #-}
 import Lexer (tokenize)
 import Parser (parseProgram, prettyExpr, debugExpr, Expr, maybeParse, collectParseErrors, hasParseError)
-import Checker (typed, showTypedExpr, collectTypeErrors, substituteInContextT, applySub, showTPoly, showTMono)
+import Checker (typed, showTypedExpr, collectTypeErrors, substituteInContextT, applySub, showTPoly, showTMono, showTContext)
 import System.Environment (getArgs)
 import Data.List (intercalate)
 import qualified Data.Set
@@ -59,12 +59,12 @@ main = do
                     mapM_ putStrLn $ fmap (\(t1, t2) -> showTMono t1 ++ " →  " ++ showTMono t2) s
                     putStrLn ""
                     putStrLn "Context:"
-                    mapM_ putStrLn $ fmap (\(name, p) -> name ++ " = " ++ showTPoly p) $ assocs $ substituteInContextT c s
+                    let sContextList = assocs $ substituteInContextT c s
+                    mapM_ putStrLn $ fmap (\(name, p) -> name ++ " = " ++ showTContext p) $ sContextList
                     putStrLn ""
                     putStrLn "Checked:"
                     putStrLn $ concatMap showTypedExpr $ applySub typedAst s
                     mapM_ putStrLn $ collectTypeErrors typedAst
-
 
     -- Default is to tokenize, parse, and check from given filename argument
     else do
