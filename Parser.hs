@@ -99,15 +99,15 @@ parseProgram tokens = snd $ parseProgram' [] tokens
 
 hasParseError :: Expr -> Bool
 hasParseError (ParseError _) = True
-hasParseError (App exprs) = any hasParseError exprs
+hasParseError (App exprs) = Prelude.any hasParseError exprs
 hasParseError (Abs _ e) = hasParseError e
 hasParseError (LetTop _ e) = hasParseError e
 hasParseError (Let _ e1 e2) = hasParseError e1 || hasParseError e2
 hasParseError (Enclosed e) = hasParseError e
 hasParseError _ = False
 
-maybeParse tokens = let parsed = parseProgram tokens in
-    if any hasParseError parsed then Nothing else Just parsed
+maybeParse tokens = let parsed = parseProgram tokens
+    in if any hasParseError parsed then Nothing else Just parsed
 
 collectParseError :: [ParseErrorMessage] -> Expr -> [ParseErrorMessage]
 collectParseError prev n@(App exprs) = Data.List.foldl collectParseError prev exprs
@@ -118,4 +118,4 @@ collectParseError prev (ParseError m) = prev ++ [m]
 collectParseError prev e = prev
 
 collectParseErrors :: [Expr] -> [String]
-collectParseErrors exprs = fmap showParseError $ Data.List.foldl collectParseError [] exprs
+collectParseErrors exprs = fmap showParseError $ foldl collectParseError [] exprs

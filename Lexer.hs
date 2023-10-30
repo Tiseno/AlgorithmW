@@ -63,7 +63,7 @@ notEmpty (Lexer l) = Lexer $ \input -> do
     if null result then Nothing else Just (input', result)
 
 spanLexer :: (Char -> Bool) -> Lexer String
-spanLexer predicate = Lexer $ \input -> return $ swap $ span predicate input
+spanLexer predicate = Lexer $ \input -> pure $ swap $ span predicate input
 
 whitespace = spanLexer (\c -> c == '\t' || c == '\r' || c == '\f' || c == '\v' || c == ' ')
 
@@ -73,7 +73,7 @@ identifier = TIdentifier <$> notEmpty (spanLexer isAlpha)
 
 numberLiteral = TNumberLiteral <$> Lexer (\input -> do
     (input', result) <- runLexer (notEmpty (spanLexer isNumber)) input
-    return (input', read result :: Int))
+    pure (input', read result :: Int))
 
 stringLiteral :: Lexer Token
 stringLiteral = TStringLiteral <$> (charLexer '"' *> spanLexer (/= '"') <* charLexer '"')
@@ -89,21 +89,6 @@ boolLiteral = tokenConstructor <$> (keywordLexer "true" <|> keywordLexer "false"
     where
         tokenConstructor "true" = TBoolLiteral True
         tokenConstructor "false" = TBoolLiteral False
-
-testTokenLexer name (lexer :: Lexer Token) = do
-    putStr (name ++ " token > ")
-    input <- getLine
-    print $ runLexer lexer input
-
-testHelpLexer name lexer = do
-    putStr (name ++ " help > ")
-    input <- getLine
-    print $ runLexer lexer input
-
-testWithInput name fn = do
-    putStr (name ++ " > ")
-    input <- getLine
-    print $ fn input
 
 sepBy separatorLexer itemLexer = many (separatorLexer *> itemLexer)
 
@@ -125,33 +110,9 @@ tokenize s = snd <$> runLexer (sepBy whitespace (
     <|> specialIdentifier
     )) s
 
+testWithInput name fn = do
+    putStr (name ++ " > ")
+    input <- getLine
+    print $ fn input
 
-main = do
-    testWithInput "tokenizer" tokenize
-    testWithInput "tokenizer" tokenize
-    testWithInput "tokenizer" tokenize
-    testWithInput "tokenizer" tokenize
-    testWithInput "tokenizer" tokenize
-    testWithInput "tokenizer" tokenize
-    testWithInput "tokenizer" tokenize
-    testWithInput "tokenizer" tokenize
-    testWithInput "tokenizer" tokenize
-    testWithInput "tokenizer" tokenize
-    testWithInput "tokenizer" tokenize
-    testWithInput "tokenizer" tokenize
-    testTokenLexer "specialIdentifier"      specialIdentifier
-    testTokenLexer "specialIdentifier"      specialIdentifier
-    testTokenLexer "specialIdentifier"      specialIdentifier
-    testTokenLexer "specialIdentifier"      specialIdentifier
-    testTokenLexer "specialIdentifier"      specialIdentifier
-    testTokenLexer "specialIdentifier"      specialIdentifier
-    testTokenLexer "stringLiteral"      stringLiteral
-    testTokenLexer "lambda"      lambda
-    testHelpLexer "whitespace"   whitespace
-    testTokenLexer "abstraction" abstraction
-    testTokenLexer "lParen"      lParen
-    testTokenLexer "rParen"      rParen
-    testTokenLexer "assign"      assign
-    testTokenLexer "identifier"  identifier
-    testTokenLexer "numberLiteral"      numberLiteral
-
+main = do testWithInput "tokenizer" tokenize; main

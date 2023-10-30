@@ -1,7 +1,4 @@
-# THM
-Down the rabbit hole that is lambda calculus.
-
-An attempt at implementing polymorphic type checking with Algorithm W.
+# Hindley Milner [Algorithm W](https://en.wikipedia.org/wiki/Hindley%E2%80%93Milner_type_system#Algorithm_W)
 
 ```
 make build
